@@ -155,6 +155,8 @@ impl SignalChannel {
     }
 
     fn inbound_sender_permitted(&self, sender: &str, data_msg: &DataMessage) -> bool {
+        // Group allowlists let operators admit a shared Signal group without
+        // enumerating every participant in `allowed_from`.
         data_msg
             .group_info
             .as_ref()
@@ -269,6 +271,8 @@ impl SignalChannel {
             return Some(text.to_string());
         }
 
+        // signal-cli reports mention offsets in UTF-16 code units, so convert to
+        // byte ranges before stripping the bot mention from forwarded content.
         let mut spans = data_msg
             .mentions
             .as_ref()

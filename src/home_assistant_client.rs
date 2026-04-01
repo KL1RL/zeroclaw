@@ -20,6 +20,7 @@ pub struct HomeAssistantRuntimeContext {
     pub disable_strict_ssl: bool,
 }
 
+/// Shared Home Assistant REST client used by the built-in tool and debug CLI.
 #[derive(Debug, Clone)]
 pub struct HomeAssistantClient {
     client: reqwest::Client,
@@ -177,6 +178,8 @@ impl HomeAssistantClient {
             let object = target
                 .as_object()
                 .ok_or_else(|| anyhow::anyhow!("'target' must be an object when provided"))?;
+            // Home Assistant service calls expect target selectors inside the top-level
+            // service data payload rather than under a nested `target` object.
             for (key, value) in object {
                 body.insert(key.clone(), value.clone());
             }

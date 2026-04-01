@@ -249,6 +249,47 @@ allowed_tools = ["file_read", "shell"]
 skills_directory = "skills/code-review"
 ```
 
+## `[home_assistant]`
+
+Controls the built-in `home_assistant` tool.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | Enable the Home Assistant REST tool |
+| `url` | empty | Base URL for the Home Assistant instance |
+| `disable_strict_ssl` | `false` | Allow self-signed or privately issued TLS certificates |
+
+Notes:
+
+- The access token is not stored in `config.toml`. ZeroClaw reads it from the active workspace `.env` file or process environment using `HOME_ASSISTANT_ACCESS_TOKEN`, `HOME_ASSISTANT_TOKEN`, or `HOME_ASSISTANT_API_KEY`.
+- `home_assistant.url` must be an absolute `http` or `https` URL without embedded credentials, query parameters, or fragments.
+- For service calls, ZeroClaw now flattens `entity_id` and `target` keys into the top-level Home Assistant service payload so common calls like `light.turn_on` match Home Assistant's REST API expectations.
+- For light dimming requests, prefer `light.turn_on` with `brightness_pct` under `data`.
+
+Example:
+
+```toml
+[home_assistant]
+enabled = true
+url = "http://homeassistant.local:8123"
+disable_strict_ssl = false
+```
+
+Example service call payloads emitted by the tool:
+
+```json
+{
+  "entity_id": "light.kitchen_island_chandelier"
+}
+```
+
+```json
+{
+  "entity_id": "light.kitchen_island_chandelier",
+  "brightness_pct": 50
+}
+```
+
 ## `[runtime]`
 
 | Key | Default | Purpose |
