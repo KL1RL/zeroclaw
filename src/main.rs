@@ -89,6 +89,7 @@ mod gateway;
 mod hardware;
 mod health;
 mod heartbeat;
+mod home_assistant_client;
 mod hooks;
 mod i18n;
 mod identity;

@@ -26,6 +26,7 @@ file_write = "ワークスペース内のファイルに内容を書き込みま
 git_operations = "構造化されたGit操作（status、diff、log、branch、commit、add、checkout、stash）を実行します。パース済みJSON出力を提供し、自律制御のセキュリティポリシーと統合します。"
 glob_search = "ワークスペース内でglobパターンに一致するファイルを検索します。ワークスペースルートからの相対パスでソートされたマッチファイルリストを返します。例：'**/*.rs'（全Rustファイル）、'src/**/mod.rs'（src内の全mod.rs）。"
 google_workspace = "Google Workspaceサービス（Drive、Gmail、Calendar、Sheets、Docsなど）とgws CLIを介して連携します。gwsのインストールと認証が必要です。"
+home_assistant = "Home Assistant の REST API と連携します。設定の読み取り、サービス一覧、エンティティ状態一覧、単一エンティティ状態の取得、サービス呼び出しをサポートします。call_service では対象エンティティを target.entity_id または entity_id の短縮指定で渡し、追加のサービス項目は data に入れ、サービスが応答データを明示的にサポートする場合を除いて return_response は省略してください。アクセス トークンはアクティブなワークスペースの .env ファイルから読み取ります（HOME_ASSISTANT_ACCESS_TOKEN / HOME_ASSISTANT_TOKEN / HOME_ASSISTANT_API_KEY）。"
 hardware_board_info = "接続されたハードウェアの完全なボード情報（チップ、アーキテクチャ、メモリマップ）を返します。使用場面：ユーザーが「ボード情報」「接続されたハードウェア」「チップ情報」「メモリマップ」について質問した場合。"
 hardware_memory_map = "接続されたハードウェアのメモリマップ（flashとRAMのアドレス範囲）を返します。使用場面：ユーザーが「上位・下位メモリアドレス」「メモリマップ」「アドレス空間」「読み取り可能なアドレス」について質問した場合。データシートからflash/RAM範囲を返します。"
 hardware_memory_read = "USB経由でNucleoから実際のメモリ/レジスタ値を読み取ります。使用場面：ユーザーが「レジスタ値の読み取り」「アドレスのメモリ読み取り」「メモリダンプ」「下位メモリ 0-126」「アドレスと値」について質問した場合。16進ダンプを返します。USB接続されたNucleoとprobe機能が必要です。パラメータ：address（16進数、例：RAMの先頭は0x20000000）、length（バイト数、デフォルト128）。"
