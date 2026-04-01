@@ -18,6 +18,17 @@ enabled = false
 url = "http://homeassistant.local:8123"
 disable_strict_ssl = false
 
+# Signal channel (optional)
+# [channels_config.signal]
+# http_url = "http://127.0.0.1:8686"
+# account = "+1234567890"
+# group_id = "dm"                  # optional legacy scope filter: "dm" / specific group id / omitted
+# allowed_from = ["*"]
+# allowed_groups = ["group-id"]    # optional: members of these groups may message without being in allowed_from
+# ignore_attachments = false
+# ignore_stories = true
+# mention_only = false              # optional: require explicit mentions in groups; DMs always allowed
+
 # Cost tracking and budget enforcement configuration
 # Enable to track API usage costs and enforce spending limits
 [cost]

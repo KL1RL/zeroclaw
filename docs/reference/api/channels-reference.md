@@ -244,11 +244,19 @@ See [Matrix E2EE Guide](../../security/matrix-e2ee-guide.md) for encrypted-room 
 [channels_config.signal]
 http_url = "http://127.0.0.1:8686"
 account = "+1234567890"
-group_id = "dm"                    # optional: "dm" / group id / omitted
+group_id = "dm"                    # optional legacy scope filter: "dm" / group id / omitted
 allowed_from = ["*"]
+allowed_groups = ["group-id"]      # optional: members of these groups bypass allowed_from
 ignore_attachments = false
 ignore_stories = true
+mention_only = false               # optional: require explicit mentions in groups; DMs always allowed
 ```
+
+- `allowed_from` still controls direct messages and any groups not covered by `allowed_groups`.
+- Members of groups listed in `allowed_groups` may message the bot even if their phone numbers are not individually listed in `allowed_from`.
+- `mention_only = true` applies only to group chats.
+- Signal group gating uses explicit mention metadata from `signal-cli` events, not plain-text matching.
+- When a valid group mention targets the configured Signal account, the mention text is stripped before the message is forwarded to the agent.
 
 ### 4.7 WhatsApp
 

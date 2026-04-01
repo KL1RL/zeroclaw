@@ -4326,6 +4326,25 @@ fn setup_channels() -> Result<ChannelsConfig> {
                         .collect()
                 };
 
+                let allowed_groups_raw: String = Input::new()
+                    .with_prompt(
+                        "  Allowed group IDs (comma-separated, blank for none, * for all groups)",
+                    )
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_groups = if allowed_groups_raw.trim().is_empty() {
+                    Vec::new()
+                } else if allowed_groups_raw.trim() == "*" {
+                    vec!["*".into()]
+                } else {
+                    allowed_groups_raw
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                };
+
                 let ignore_attachments = Confirm::new()
                     .with_prompt("  Ignore attachment-only messages?")
                     .default(false)
@@ -4336,13 +4355,20 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     .default(true)
                     .interact()?;
 
+                let mention_only = Confirm::new()
+                    .with_prompt("  Only respond to direct mentions in groups?")
+                    .default(false)
+                    .interact()?;
+
                 config.signal = Some(SignalConfig {
                     http_url: http_url.trim_end_matches('/').to_string(),
                     account: account.trim().to_string(),
                     group_id,
                     allowed_from,
+                    allowed_groups,
                     ignore_attachments,
                     ignore_stories,
+                    mention_only,
                     proxy_url: None,
                 });
 
@@ -7593,8 +7619,10 @@ mod tests {
             account: "+1234567890".into(),
             group_id: None,
             allowed_from: vec!["*".into()],
+            allowed_groups: vec![],
             ignore_attachments: false,
             ignore_stories: true,
+            mention_only: false,
             proxy_url: None,
         });
         assert!(has_launchable_channels(&channels));
