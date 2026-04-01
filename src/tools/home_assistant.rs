@@ -191,6 +191,7 @@ impl HomeAssistantTool {
         context: &RuntimeContext,
         domain: &str,
         service: &str,
+        entity_id: Option<&str>,
         data: Option<&Value>,
         target: Option<&Value>,
         return_response: Option<bool>,
@@ -213,11 +214,19 @@ impl HomeAssistantTool {
                 body.insert(key.clone(), value.clone());
             }
         }
+
+        if let Some(entity_id) = entity_id {
+            let entity_id = validate_entity_id(entity_id)?;
+            body.insert("entity_id".to_string(), Value::String(entity_id));
+        }
+
         if let Some(target) = target {
             let object = target
                 .as_object()
                 .ok_or_else(|| anyhow::anyhow!("'target' must be an object when provided"))?;
-            body.insert("target".to_string(), Value::Object(object.clone()));
+            for (key, value) in object {
+                body.insert(key.clone(), value.clone());
+            }
         }
 
         self.send_json(
@@ -238,7 +247,7 @@ impl Tool for HomeAssistantTool {
     }
 
     fn description(&self) -> &str {
-        "Interact with Home Assistant via its REST API. Supports reading config, listing services, listing entity states, getting a single entity state, and calling services. Reads the access token from the active workspace .env file."
+        "Interact with Home Assistant via its REST API using bearer-token auth and JSON payloads. Supports reading config, listing services, listing entity states, getting a single entity state, and calling services. For call_service, pass target keys like entity_id either directly or under target; target fields are flattened into the REST service payload. Put extra service fields under data, and omit return_response unless the service explicitly supports response data. For light dimming, call light.turn_on and pass brightness in data, usually brightness_pct as a 0-100 percentage. Reads the access token from the active workspace .env file."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -256,7 +265,7 @@ impl Tool for HomeAssistantTool {
                 },
                 "entity_id": {
                     "type": "string",
-                    "description": "Entity ID for get_state (e.g. light.kitchen)"
+                    "description": "Entity ID for get_state, or shorthand target for call_service (e.g. light.kitchen)"
                 },
                 "service": {
                     "type": "string",
@@ -264,15 +273,15 @@ impl Tool for HomeAssistantTool {
                 },
                 "data": {
                     "type": "object",
-                    "description": "Optional service payload for call_service"
+                    "description": "Optional extra service payload for call_service; prefer top-level entity_id/target over duplicating target keys here. Example for dimming a light: {\"brightness_pct\":50} with service \"turn_on\""
                 },
                 "target": {
                     "type": "object",
-                    "description": "Optional Home Assistant target object for call_service"
+                    "description": "Optional call_service target object; its keys are flattened into the REST payload, e.g. {\"entity_id\":\"light.kitchen\"}"
                 },
                 "return_response": {
                     "type": "boolean",
-                    "description": "Request Home Assistant service response data when supported"
+                    "description": "Only set true when the Home Assistant service explicitly supports response data; otherwise omit it"
                 }
             },
             "required": ["action"]
@@ -328,7 +337,7 @@ impl Tool for HomeAssistantTool {
         };
         let client = self.client(&context)?;
 
-        let result = match action {
+        let result: anyhow::Result<Value> = match action {
             "get_config" => self.get_config(&client, &context).await,
             "list_services" => self.list_services(&client, &context).await,
             "list_states" => {
@@ -371,6 +380,7 @@ impl Tool for HomeAssistantTool {
                     &context,
                     domain,
                     service,
+                    args.get("entity_id").and_then(Value::as_str),
                     args.get("data"),
                     args.get("target"),
                     return_response,
@@ -423,19 +433,17 @@ fn normalize_base_url(raw_url: &str) -> anyhow::Result<reqwest::Url> {
 
 fn parse_env_value(raw: &str) -> String {
     let raw = raw.trim();
-    let unquoted = if raw.len() >= 2
-        && ((raw.starts_with('"') && raw.ends_with('"'))
-            || (raw.starts_with('\'') && raw.ends_with('\'')))
+    let without_comment = raw.split_once(" #").map_or(raw, |(value, _)| value).trim();
+    let unquoted = if without_comment.len() >= 2
+        && ((without_comment.starts_with('"') && without_comment.ends_with('"'))
+            || (without_comment.starts_with('\'') && without_comment.ends_with('\'')))
     {
-        &raw[1..raw.len() - 1]
+        &without_comment[1..without_comment.len() - 1]
     } else {
-        raw
+        without_comment
     };
 
-    unquoted.split_once(" #").map_or_else(
-        || unquoted.trim().to_string(),
-        |(value, _)| value.trim().to_string(),
-    )
+    unquoted.trim().to_string()
 }
 
 async fn read_home_assistant_token(workspace_dir: &Path) -> anyhow::Result<String> {
@@ -510,7 +518,7 @@ mod tests {
     use super::*;
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use tempfile::TempDir;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn test_security() -> Arc<SecurityPolicy> {
@@ -607,5 +615,111 @@ mod tests {
 
         assert!(!result.success);
         assert!(result.error.as_deref().unwrap_or("").contains("read-only"));
+    }
+
+    #[tokio::test]
+    async fn call_service_accepts_entity_id_shorthand() {
+        let temp = TempDir::new().unwrap();
+        let active_config_dir = temp.path().join("profiles").join("alpha");
+        let workspace_dir = active_config_dir.join("workspace");
+        tokio::fs::create_dir_all(&workspace_dir).await.unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/services/light/turn_off"))
+            .and(header("authorization", "Bearer test-ha-token"))
+            .and(body_json(json!({
+                "entity_id": "light.kitchen_island_chandelier"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+
+        tokio::fs::write(
+            active_config_dir.join("config.toml"),
+            format!(
+                "[home_assistant]\nenabled = true\nurl = \"{}\"\ndisable_strict_ssl = false\n",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            workspace_dir.join(".env"),
+            "HOME_ASSISTANT_ACCESS_TOKEN=test-ha-token\n",
+        )
+        .await
+        .unwrap();
+
+        let tool = HomeAssistantTool::new_with_runtime_dirs(
+            test_security(),
+            active_config_dir.clone(),
+            workspace_dir,
+        );
+        let result = tool
+            .execute(json!({
+                "action": "call_service",
+                "domain": "light",
+                "service": "turn_off",
+                "entity_id": "light.kitchen_island_chandelier"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got {:?}", result.error);
+    }
+
+    #[tokio::test]
+    async fn call_service_flattens_target_into_service_data() {
+        let temp = TempDir::new().unwrap();
+        let active_config_dir = temp.path().join("profiles").join("alpha");
+        let workspace_dir = active_config_dir.join("workspace");
+        tokio::fs::create_dir_all(&workspace_dir).await.unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/services/light/turn_on"))
+            .and(header("authorization", "Bearer test-ha-token"))
+            .and(body_json(json!({
+                "entity_id": "light.kitchen_island_chandelier",
+                "brightness": 128
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+
+        tokio::fs::write(
+            active_config_dir.join("config.toml"),
+            format!(
+                "[home_assistant]\nenabled = true\nurl = \"{}\"\ndisable_strict_ssl = false\n",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            workspace_dir.join(".env"),
+            "HOME_ASSISTANT_ACCESS_TOKEN=test-ha-token\n",
+        )
+        .await
+        .unwrap();
+
+        let tool = HomeAssistantTool::new_with_runtime_dirs(
+            test_security(),
+            active_config_dir.clone(),
+            workspace_dir,
+        );
+        let result = tool
+            .execute(json!({
+                "action": "call_service",
+                "domain": "light",
+                "service": "turn_on",
+                "data": { "brightness": 128 },
+                "target": { "entity_id": "light.kitchen_island_chandelier" }
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success, "expected success, got {:?}", result.error);
     }
 }

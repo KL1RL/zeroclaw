@@ -54,6 +54,7 @@ pub mod hands;
 pub(crate) mod hardware;
 pub(crate) mod health;
 pub(crate) mod heartbeat;
+pub mod home_assistant_client;
 pub mod hooks;
 pub mod i18n;
 pub(crate) mod identity;
