@@ -4290,8 +4290,10 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                 sg.account.clone(),
                 sg.group_id.clone(),
                 sg.allowed_from.clone(),
+                sg.allowed_groups.clone(),
                 sg.ignore_attachments,
                 sg.ignore_stories,
+                sg.mention_only,
             )))
         }
         "matrix" => {
@@ -4569,8 +4571,10 @@ fn collect_configured_channels(
                     sig.account.clone(),
                     sig.group_id.clone(),
                     sig.allowed_from.clone(),
+                    sig.allowed_groups.clone(),
                     sig.ignore_attachments,
                     sig.ignore_stories,
+                    sig.mention_only,
                 )
                 .with_proxy_url(sig.proxy_url.clone()),
             ),

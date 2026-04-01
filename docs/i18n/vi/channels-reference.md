@@ -200,11 +200,19 @@ Xem [Hướng dẫn Matrix E2EE](matrix-e2ee-guide.md) để xử lý sự cố 
 [channels_config.signal]
 http_url = "http://127.0.0.1:8686"
 account = "+1234567890"
-group_id = "dm"                    # tùy chọn: "dm" / group id / bỏ qua
+group_id = "dm"                    # bộ lọc phạm vi cũ, tùy chọn: "dm" / group id / bỏ qua
 allowed_from = ["*"]
+allowed_groups = ["group-id"]      # tùy chọn: thành viên các nhóm này được phép nhắn mà không cần có trong allowed_from
 ignore_attachments = false
 ignore_stories = true
+mention_only = false               # tùy chọn: yêu cầu nhắc đích danh trong nhóm; DM luôn được phép
 ```
+
+- `allowed_from` vẫn kiểm soát tin nhắn riêng và mọi nhóm không nằm trong `allowed_groups`.
+- Thành viên của các nhóm có trong `allowed_groups` có thể nhắn cho bot ngay cả khi số điện thoại của họ không được liệt kê riêng trong `allowed_from`.
+- `mention_only = true` chỉ áp dụng cho chat nhóm.
+- Bộ lọc Signal dùng metadata nhắc đích danh rõ ràng từ sự kiện `signal-cli`, không dựa vào khớp văn bản thuần.
+- Khi một nhắc đích danh hợp lệ trỏ tới tài khoản Signal đã cấu hình, phần nhắc đó sẽ bị loại khỏi nội dung trước khi chuyển cho agent.
 
 ### 4.7 WhatsApp
 

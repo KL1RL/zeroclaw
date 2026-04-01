@@ -219,11 +219,19 @@ allowed_users = [\"*\"]
 [channels_config.signal]
 http_url = \"http://127.0.0.1:8686\"
 account = \"+1234567890\"
-group_id = \"dm\"                    # 可选: \"dm\" / 群组 ID / 省略
+group_id = \"dm\"                    # 可选的旧范围过滤器: \"dm\" / 群组 ID / 省略
 allowed_from = [\"*\"]
+allowed_groups = [\"group-id\"]      # 可选: 这些群组的成员无需出现在 allowed_from 中也可发消息
 ignore_attachments = false
 ignore_stories = true
+mention_only = false               # 可选: 群组中要求显式提及；私信始终允许
 ```
+
+- `allowed_from` 仍然控制私信，以及所有未被 `allowed_groups` 覆盖的群聊。
+- `allowed_groups` 中列出的群组成员即使没有单独出现在 `allowed_from` 中，也可以向 bot 发送消息。
+- `mention_only = true` 只对群聊生效。
+- Signal 的群聊过滤使用 `signal-cli` 事件中的显式提及元数据，而不是纯文本匹配。
+- 当有效提及指向已配置的 Signal 账号时，提及文本会在转发给 agent 之前被移除。
 
 ### 4.7 WhatsApp
 
