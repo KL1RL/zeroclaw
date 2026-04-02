@@ -9,7 +9,7 @@ COPY web/ .
 RUN npm run build
 
 # ── Stage 1: Build ────────────────────────────────────────────
-FROM rust:1.94-slim@sha256:da9dab7a6b8dd428e71718402e97207bb3e54167d37b5708616050b1e8f60ed6 AS builder
+FROM rust:1.94-slim@sha256:1d0000a49fb62f4fde24455f49d59c6c088af46202d65d8f455b722f7263e8f8 AS builder
 
 WORKDIR /app
 ARG ZEROCLAW_CARGO_FEATURES="channel-lark,whatsapp-web"
