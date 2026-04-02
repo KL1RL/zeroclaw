@@ -254,6 +254,7 @@ mention_only = false               # optional: require explicit mentions in grou
 
 - `allowed_from` still controls direct messages and any groups not covered by `allowed_groups`.
 - Members of groups listed in `allowed_groups` may message the bot even if their phone numbers are not individually listed in `allowed_from`.
+- `group_id` remains available as a legacy scope filter when you want to pin the channel to one Signal group or DMs only.
 - `mention_only = true` applies only to group chats.
 - Signal group gating uses explicit mention metadata from `signal-cli` events, not plain-text matching.
 - When a valid group mention targets the configured Signal account, the mention text is stripped before the message is forwarded to the agent.
@@ -529,7 +530,7 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 | Slack | `Slack channel listening on #` / `Slack channel_id not set (or '*'); listening across all accessible channels.` | `Slack: ignoring message from unauthorized user:` | `Slack poll error:` / `Slack parse error:` / `Slack channel discovery failed:` |
 | Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
 | Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
-| Signal | `Signal channel listening via SSE on` | (allowlist checks are enforced by `allowed_from`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
+| Signal | `Signal channel listening via SSE on` | (admission checks are enforced by `allowed_from`, `allowed_groups`, `group_id`, and `mention_only`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
 | WhatsApp (channel) | `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
 | Webhook / WhatsApp (gateway) | `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
 | Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |
