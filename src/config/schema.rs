@@ -6715,6 +6715,11 @@ pub struct SignalConfig {
     pub http_url: String,
     /// E.164 phone number of the signal-cli account (e.g. "+1234567890").
     pub account: String,
+    /// Optional plain-text @name to accept in group chats when `mention_only` is enabled.
+    /// Use this when Signal's native mention metadata is unavailable or users type
+    /// a textual handle instead of inserting a structured mention.
+    #[serde(default)]
+    pub response_name: Option<String>,
     /// Optional legacy scope filter for inbound messages.
     /// - `None` or omitted: accept all messages (DMs and groups)
     /// - `"dm"`: only accept direct messages
@@ -12483,6 +12488,7 @@ allowed_users = ["@ops:matrix.org"]
         let sc = SignalConfig {
             http_url: "http://127.0.0.1:8686".into(),
             account: "+1234567890".into(),
+            response_name: Some("ZeroClaw".into()),
             group_id: Some("group123".into()),
             allowed_from: vec!["+1111111111".into()],
             allowed_groups: vec!["group123".into()],
@@ -12495,6 +12501,7 @@ allowed_users = ["@ops:matrix.org"]
         let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.http_url, "http://127.0.0.1:8686");
         assert_eq!(parsed.account, "+1234567890");
+        assert_eq!(parsed.response_name.as_deref(), Some("ZeroClaw"));
         assert_eq!(parsed.group_id.as_deref(), Some("group123"));
         assert_eq!(parsed.allowed_from.len(), 1);
         assert_eq!(parsed.allowed_groups, vec!["group123"]);
@@ -12508,6 +12515,7 @@ allowed_users = ["@ops:matrix.org"]
         let sc = SignalConfig {
             http_url: "http://localhost:8080".into(),
             account: "+9876543210".into(),
+            response_name: Some("ZeroClaw.01".into()),
             group_id: None,
             allowed_from: vec!["*".into()],
             allowed_groups: vec!["group-alpha".into(), "group-beta".into()],
@@ -12520,6 +12528,7 @@ allowed_users = ["@ops:matrix.org"]
         let parsed: SignalConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.http_url, "http://localhost:8080");
         assert_eq!(parsed.account, "+9876543210");
+        assert_eq!(parsed.response_name.as_deref(), Some("ZeroClaw.01"));
         assert!(parsed.group_id.is_none());
         assert_eq!(parsed.allowed_groups.len(), 2);
         assert!(parsed.ignore_stories);
@@ -12530,6 +12539,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn signal_config_defaults() {
         let json = r#"{"http_url":"http://127.0.0.1:8686","account":"+1234567890"}"#;
         let parsed: SignalConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.response_name.is_none());
         assert!(parsed.group_id.is_none());
         assert!(parsed.allowed_from.is_empty());
         assert!(parsed.allowed_groups.is_empty());

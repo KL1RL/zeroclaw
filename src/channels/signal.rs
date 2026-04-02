@@ -24,6 +24,7 @@ enum RecipientTarget {
 pub struct SignalChannel {
     http_url: String,
     account: String,
+    response_name: Option<String>,
     group_id: Option<String>,
     allowed_from: Vec<String>,
     allowed_groups: Vec<String>,
@@ -92,6 +93,7 @@ impl SignalChannel {
     pub fn new(
         http_url: String,
         account: String,
+        response_name: Option<String>,
         group_id: Option<String>,
         allowed_from: Vec<String>,
         allowed_groups: Vec<String>,
@@ -103,6 +105,7 @@ impl SignalChannel {
         Self {
             http_url,
             account,
+            response_name: Self::normalize_response_name(response_name),
             group_id,
             allowed_from,
             allowed_groups,
@@ -190,6 +193,13 @@ impl SignalChannel {
         }
     }
 
+    fn normalize_response_name(response_name: Option<String>) -> Option<String> {
+        response_name.and_then(|name| {
+            let normalized = name.trim().trim_start_matches('@').trim().to_string();
+            (!normalized.is_empty()).then_some(normalized)
+        })
+    }
+
     /// Check whether the message targets the configured group.
     /// If no `group_id` is configured (None), all DMs and groups are accepted.
     /// Use "dm" to filter DMs only.
@@ -234,6 +244,70 @@ impl SignalChannel {
                 .recipient_uuid
                 .as_deref()
                 .is_some_and(|uuid| uuid.eq_ignore_ascii_case(&self.account))
+    }
+
+    fn is_response_name_char(ch: char) -> bool {
+        ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-')
+    }
+
+    fn find_response_name_spans(text: &str, response_name: &str) -> Vec<(usize, usize)> {
+        let response_name = response_name.trim_start_matches('@');
+        if response_name.is_empty() {
+            return Vec::new();
+        }
+
+        let mut spans = Vec::new();
+        for (at_idx, ch) in text.char_indices() {
+            if ch != '@' {
+                continue;
+            }
+
+            if at_idx > 0 {
+                let prev = text[..at_idx].chars().next_back().unwrap_or(' ');
+                if Self::is_response_name_char(prev) {
+                    continue;
+                }
+            }
+
+            let name_start = at_idx + 1;
+            let mut name_end = name_start;
+
+            for (rel_idx, candidate) in text[name_start..].char_indices() {
+                if Self::is_response_name_char(candidate) {
+                    name_end = name_start + rel_idx + candidate.len_utf8();
+                } else {
+                    break;
+                }
+            }
+
+            if name_end == name_start {
+                continue;
+            }
+
+            let mention_name = &text[name_start..name_end];
+            if mention_name.eq_ignore_ascii_case(response_name) {
+                spans.push((at_idx, name_end));
+            }
+        }
+
+        spans
+    }
+
+    fn merge_spans(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+        spans.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+        for (start, end) in spans {
+            if let Some(last) = merged.last_mut()
+                && start <= last.1
+            {
+                last.1 = last.1.max(end);
+                continue;
+            }
+            merged.push((start, end));
+        }
+
+        merged
     }
 
     fn utf16_offset_to_byte_index(text: &str, utf16_offset: usize) -> Option<usize> {
@@ -282,13 +356,16 @@ impl SignalChannel {
             .filter_map(|mention| Self::mention_byte_span(text, mention))
             .collect::<Vec<_>>();
 
+        if let Some(response_name) = self.response_name.as_deref() {
+            spans.extend(Self::find_response_name_spans(text, response_name));
+        }
+
         if spans.is_empty() {
             return None;
         }
 
-        spans.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
         let mut normalized = text.to_string();
-        for (start, end) in spans {
+        for (start, end) in Self::merge_spans(spans).into_iter().rev() {
             if start <= end && end <= normalized.len() {
                 normalized.replace_range(start..end, "");
             }
@@ -592,6 +669,7 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec!["+1111111111".to_string()],
             vec![],
             false,
@@ -604,6 +682,7 @@ mod tests {
         SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             Some(group_id.to_string()),
             vec!["*".to_string()],
             vec![],
@@ -617,6 +696,7 @@ mod tests {
         SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             Some(group_id.to_string()),
             vec!["*".to_string()],
             vec![],
@@ -647,6 +727,7 @@ mod tests {
         let ch = make_channel();
         assert_eq!(ch.http_url, "http://127.0.0.1:8686");
         assert_eq!(ch.account, "+1234567890");
+        assert!(ch.response_name.is_none());
         assert!(ch.group_id.is_none());
         assert_eq!(ch.allowed_from.len(), 1);
         assert!(ch.allowed_groups.is_empty());
@@ -660,6 +741,7 @@ mod tests {
         let ch = SignalChannel::new(
             "http://127.0.0.1:8686/".to_string(),
             "+1234567890".to_string(),
+            None,
             None,
             vec![],
             vec![],
@@ -693,6 +775,7 @@ mod tests {
         let ch = SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             None,
             vec![],
             vec![],
@@ -893,6 +976,7 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec!["*".to_string()],
             vec![],
             false,
@@ -928,6 +1012,7 @@ mod tests {
         let ch = SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             Some("testgroup".to_string()),
             vec!["*".to_string()],
             vec![],
@@ -1135,6 +1220,72 @@ mod tests {
     }
 
     #[test]
+    fn process_envelope_mention_only_group_accepts_configured_response_name() {
+        let ch = SignalChannel::new(
+            "http://127.0.0.1:8686".to_string(),
+            "+1234567890".to_string(),
+            Some("ZeroClaw".to_string()),
+            Some("group123".to_string()),
+            vec!["*".to_string()],
+            vec![],
+            false,
+            false,
+            true,
+        );
+        let env = Envelope {
+            source: Some("+1111111111".to_string()),
+            source_number: Some("+1111111111".to_string()),
+            data_message: Some(DataMessage {
+                message: Some("@ZeroClaw, lights on".to_string()),
+                timestamp: Some(1_700_000_000_000),
+                group_info: Some(GroupInfo {
+                    group_id: Some("group123".to_string()),
+                }),
+                mentions: Some(vec![]),
+                attachments: None,
+            }),
+            story_message: None,
+            timestamp: Some(1_700_000_000_000),
+        };
+
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.content, "lights on");
+    }
+
+    #[test]
+    fn process_envelope_mention_only_group_response_name_is_case_insensitive() {
+        let ch = SignalChannel::new(
+            "http://127.0.0.1:8686".to_string(),
+            "+1234567890".to_string(),
+            Some("@ZeroClaw.01".to_string()),
+            Some("group123".to_string()),
+            vec!["*".to_string()],
+            vec![],
+            false,
+            false,
+            true,
+        );
+        let env = Envelope {
+            source: Some("+1111111111".to_string()),
+            source_number: Some("+1111111111".to_string()),
+            data_message: Some(DataMessage {
+                message: Some("@zeroclaw.01 status".to_string()),
+                timestamp: Some(1_700_000_000_000),
+                group_info: Some(GroupInfo {
+                    group_id: Some("group123".to_string()),
+                }),
+                mentions: Some(vec![]),
+                attachments: None,
+            }),
+            story_message: None,
+            timestamp: Some(1_700_000_000_000),
+        };
+
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.content, "status");
+    }
+
+    #[test]
     fn process_envelope_mention_only_group_drops_empty_after_stripping() {
         let ch = make_mention_only_group_channel("group123");
         let env = Envelope {
@@ -1167,6 +1318,7 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec!["+1111111111".to_string()],
             vec![],
             false,
@@ -1183,6 +1335,7 @@ mod tests {
         let ch = SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             None,
             vec![],
             vec!["group123".to_string()],
@@ -1216,6 +1369,7 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec![],
             vec!["group123".to_string()],
             false,
@@ -1246,6 +1400,7 @@ mod tests {
         let ch = SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             None,
             vec![],
             vec!["group123".to_string()],
