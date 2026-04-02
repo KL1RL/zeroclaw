@@ -6715,7 +6715,12 @@ pub struct SignalConfig {
     pub http_url: String,
     /// E.164 phone number of the signal-cli account (e.g. "+1234567890").
     pub account: String,
-    /// Optional group ID to filter messages.
+    /// Optional plain-text @name to accept in group chats when `mention_only` is enabled.
+    /// Use this when Signal's native mention metadata is unavailable or users type
+    /// a textual handle instead of inserting a structured mention.
+    #[serde(default)]
+    pub response_name: Option<String>,
+    /// Optional legacy scope filter for inbound messages.
     /// - `None` or omitted: accept all messages (DMs and groups)
     /// - `"dm"`: only accept direct messages
     /// - Specific group ID: only accept messages from that group
@@ -6724,12 +6729,20 @@ pub struct SignalConfig {
     /// Allowed sender phone numbers (E.164) or "*" for all.
     #[serde(default)]
     pub allowed_from: Vec<String>,
+    /// Allowed Signal group IDs whose members may message the bot without being
+    /// individually listed in `allowed_from`. Use "*" to allow all groups.
+    #[serde(default)]
+    pub allowed_groups: Vec<String>,
     /// Skip messages that are attachment-only (no text body).
     #[serde(default)]
     pub ignore_attachments: bool,
     /// Skip incoming story messages.
     #[serde(default)]
     pub ignore_stories: bool,
+    /// When true, only respond to messages that explicitly mention the account in groups.
+    /// Direct messages are always processed.
+    #[serde(default)]
+    pub mention_only: bool,
     /// Per-channel proxy URL (http, https, socks5, socks5h).
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
@@ -12475,20 +12488,26 @@ allowed_users = ["@ops:matrix.org"]
         let sc = SignalConfig {
             http_url: "http://127.0.0.1:8686".into(),
             account: "+1234567890".into(),
+            response_name: Some("ZeroClaw".into()),
             group_id: Some("group123".into()),
             allowed_from: vec!["+1111111111".into()],
+            allowed_groups: vec!["group123".into()],
             ignore_attachments: true,
             ignore_stories: false,
+            mention_only: true,
             proxy_url: None,
         };
         let json = serde_json::to_string(&sc).unwrap();
         let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.http_url, "http://127.0.0.1:8686");
         assert_eq!(parsed.account, "+1234567890");
+        assert_eq!(parsed.response_name.as_deref(), Some("ZeroClaw"));
         assert_eq!(parsed.group_id.as_deref(), Some("group123"));
         assert_eq!(parsed.allowed_from.len(), 1);
+        assert_eq!(parsed.allowed_groups, vec!["group123"]);
         assert!(parsed.ignore_attachments);
         assert!(!parsed.ignore_stories);
+        assert!(parsed.mention_only);
     }
 
     #[test]
@@ -12496,28 +12515,37 @@ allowed_users = ["@ops:matrix.org"]
         let sc = SignalConfig {
             http_url: "http://localhost:8080".into(),
             account: "+9876543210".into(),
+            response_name: Some("ZeroClaw.01".into()),
             group_id: None,
             allowed_from: vec!["*".into()],
+            allowed_groups: vec!["group-alpha".into(), "group-beta".into()],
             ignore_attachments: false,
             ignore_stories: true,
+            mention_only: false,
             proxy_url: None,
         };
         let toml_str = toml::to_string(&sc).unwrap();
         let parsed: SignalConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.http_url, "http://localhost:8080");
         assert_eq!(parsed.account, "+9876543210");
+        assert_eq!(parsed.response_name.as_deref(), Some("ZeroClaw.01"));
         assert!(parsed.group_id.is_none());
+        assert_eq!(parsed.allowed_groups.len(), 2);
         assert!(parsed.ignore_stories);
+        assert!(!parsed.mention_only);
     }
 
     #[test]
     async fn signal_config_defaults() {
         let json = r#"{"http_url":"http://127.0.0.1:8686","account":"+1234567890"}"#;
         let parsed: SignalConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.response_name.is_none());
         assert!(parsed.group_id.is_none());
         assert!(parsed.allowed_from.is_empty());
+        assert!(parsed.allowed_groups.is_empty());
         assert!(!parsed.ignore_attachments);
         assert!(!parsed.ignore_stories);
+        assert!(!parsed.mention_only);
     }
 
     #[test]

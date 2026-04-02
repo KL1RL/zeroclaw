@@ -4489,6 +4489,25 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                         .collect()
                 };
 
+                let allowed_groups_raw: String = Input::new()
+                    .with_prompt(
+                        "  Allowed group IDs (comma-separated, blank for none, * for all groups)",
+                    )
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_groups = if allowed_groups_raw.trim().is_empty() {
+                    Vec::new()
+                } else if allowed_groups_raw.trim() == "*" {
+                    vec!["*".into()]
+                } else {
+                    allowed_groups_raw
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                };
+
                 let ignore_attachments = Confirm::new()
                     .with_prompt("  Ignore attachment-only messages?")
                     .default(false)
@@ -4499,13 +4518,37 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                     .default(true)
                     .interact()?;
 
+                let mention_only = Confirm::new()
+                    .with_prompt("  Only respond to direct mentions in groups?")
+                    .default(false)
+                    .interact()?;
+
+                let response_name = if mention_only {
+                    let response_name: String = Input::new()
+                        .with_prompt(
+                            "  Response username for plain @mentions (blank to use Signal mentions only)",
+                        )
+                        .allow_empty(true)
+                        .interact_text()?;
+                    let response_name = response_name.trim().trim_start_matches('@').trim();
+                    (!response_name.is_empty()).then_some(response_name.to_string())
+                } else {
+                    config
+                        .signal
+                        .as_ref()
+                        .and_then(|signal| signal.response_name.clone())
+                };
+
                 config.signal = Some(SignalConfig {
                     http_url: http_url.trim_end_matches('/').to_string(),
                     account: account.trim().to_string(),
+                    response_name,
                     group_id,
                     allowed_from,
+                    allowed_groups,
                     ignore_attachments,
                     ignore_stories,
+                    mention_only,
                     proxy_url: config.signal.as_ref().and_then(|s| s.proxy_url.clone()),
                 });
 
@@ -7776,10 +7819,13 @@ mod tests {
         channels.signal = Some(crate::config::schema::SignalConfig {
             http_url: "http://127.0.0.1:8686".into(),
             account: "+1234567890".into(),
+            response_name: None,
             group_id: None,
             allowed_from: vec!["*".into()],
+            allowed_groups: vec![],
             ignore_attachments: false,
             ignore_stories: true,
+            mention_only: false,
             proxy_url: None,
         });
         assert!(has_launchable_channels(&channels));

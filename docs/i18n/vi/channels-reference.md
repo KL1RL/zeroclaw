@@ -200,11 +200,20 @@ Xem [Hướng dẫn Matrix E2EE](matrix-e2ee-guide.md) để xử lý sự cố 
 [channels_config.signal]
 http_url = "http://127.0.0.1:8686"
 account = "+1234567890"
-group_id = "dm"                    # tùy chọn: "dm" / group id / bỏ qua
+group_id = "dm"                    # bộ lọc phạm vi cũ, tùy chọn: "dm" / group id / bỏ qua
 allowed_from = ["*"]
+allowed_groups = ["group-id"]      # tùy chọn: thành viên các nhóm này được phép nhắn mà không cần có trong allowed_from
 ignore_attachments = false
 ignore_stories = true
+mention_only = false               # tùy chọn: yêu cầu nhắc đích danh trong nhóm; DM luôn được phép
 ```
+
+- `allowed_from` vẫn kiểm soát tin nhắn riêng và mọi nhóm không nằm trong `allowed_groups`.
+- Thành viên của các nhóm có trong `allowed_groups` có thể nhắn cho bot ngay cả khi số điện thoại của họ không được liệt kê riêng trong `allowed_from`.
+- `group_id` vẫn được giữ như một bộ lọc phạm vi cũ khi bạn muốn ghim kênh vào một nhóm Signal duy nhất hoặc chỉ nhận DM.
+- `mention_only = true` chỉ áp dụng cho chat nhóm.
+- Bộ lọc Signal dùng metadata nhắc đích danh rõ ràng từ sự kiện `signal-cli`, không dựa vào khớp văn bản thuần.
+- Khi một nhắc đích danh hợp lệ trỏ tới tài khoản Signal đã cấu hình, phần nhắc đó sẽ bị loại khỏi nội dung trước khi chuyển cho agent.
 
 ### 4.7 WhatsApp
 
@@ -403,7 +412,7 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 | Slack | `Slack channel listening on #` | `Slack: ignoring message from unauthorized user:` | `Slack poll error:` / `Slack parse error:` |
 | Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
 | Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
-| Signal | `Signal channel listening via SSE on` | (kiểm tra allowlist được thực thi bởi `allowed_from`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
+| Signal | `Signal channel listening via SSE on` | (kiểm tra chấp nhận được thực thi bởi `allowed_from`, `allowed_groups`, `group_id` và `mention_only`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
 | WhatsApp (channel) | `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
 | Webhook / WhatsApp (gateway) | `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
 | Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |
