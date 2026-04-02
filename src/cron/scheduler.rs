@@ -558,8 +558,10 @@ pub(crate) async fn deliver_announcement(
                 sg.account.clone(),
                 sg.group_id.clone(),
                 sg.allowed_from.clone(),
+                sg.allowed_groups.clone(),
                 sg.ignore_attachments,
                 sg.ignore_stories,
+                sg.mention_only,
             );
             channel
                 .send(&SendMessage::new(safe_output.as_str(), target))

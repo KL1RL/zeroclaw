@@ -1,10 +1,10 @@
 use crate::cli_input::Input;
+#[cfg(feature = "channel-nostr")]
+use crate::config::schema::{default_nostr_relays, NostrConfig};
 use crate::config::schema::{
     DingTalkConfig, IrcConfig, LarkReceiveMode, LinqConfig, NextcloudTalkConfig, QQConfig,
     SignalConfig, StreamMode, WhatsAppConfig,
 };
-#[cfg(feature = "channel-nostr")]
-use crate::config::schema::{NostrConfig, default_nostr_relays};
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
@@ -19,7 +19,7 @@ use crate::providers::{
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
     is_zai_cn_alias,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use console::style;
 use dialoguer::{Confirm, Select};
 use serde::{Deserialize, Serialize};
@@ -4489,6 +4489,25 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                         .collect()
                 };
 
+                let allowed_groups_raw: String = Input::new()
+                    .with_prompt(
+                        "  Allowed group IDs (comma-separated, blank for none, * for all groups)",
+                    )
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_groups = if allowed_groups_raw.trim().is_empty() {
+                    Vec::new()
+                } else if allowed_groups_raw.trim() == "*" {
+                    vec!["*".into()]
+                } else {
+                    allowed_groups_raw
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                };
+
                 let ignore_attachments = Confirm::new()
                     .with_prompt("  Ignore attachment-only messages?")
                     .default(false)
@@ -4499,13 +4518,20 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                     .default(true)
                     .interact()?;
 
+                let mention_only = Confirm::new()
+                    .with_prompt("  Only respond to direct mentions in groups?")
+                    .default(false)
+                    .interact()?;
+
                 config.signal = Some(SignalConfig {
                     http_url: http_url.trim_end_matches('/').to_string(),
                     account: account.trim().to_string(),
                     group_id,
                     allowed_from,
+                    allowed_groups,
                     ignore_attachments,
                     ignore_stories,
+                    mention_only,
                     proxy_url: config.signal.as_ref().and_then(|s| s.proxy_url.clone()),
                 });
 
@@ -5357,7 +5383,11 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                         .with_prompt("  Verification Token (optional, for Webhook mode)")
                         .allow_empty(true)
                         .interact_text()?;
-                    if token.is_empty() { None } else { Some(token) }
+                    if token.is_empty() {
+                        None
+                    } else {
+                        Some(token)
+                    }
                 } else {
                     None
                 };
@@ -6509,14 +6539,12 @@ mod tests {
         let service_config = Path::new("/opt/homebrew/var/zeroclaw/config.toml");
         let service_workspace = Path::new("/opt/homebrew/var/zeroclaw/workspace");
 
-        assert!(
-            quick_setup_homebrew_service_note(
-                service_config,
-                service_workspace,
-                Path::new("/opt/homebrew/bin/zeroclaw"),
-            )
-            .is_none()
-        );
+        assert!(quick_setup_homebrew_service_note(
+            service_config,
+            service_workspace,
+            Path::new("/opt/homebrew/bin/zeroclaw"),
+        )
+        .is_none());
     }
 
     // ── scaffold_workspace: basic file creation ─────────────────
@@ -7629,10 +7657,9 @@ mod tests {
         };
 
         let err = run_models_refresh(&config, None, true).await.unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("does not support live model discovery")
-        );
+        assert!(err
+            .to_string()
+            .contains("does not support live model discovery"));
     }
 
     // ── provider_env_var ────────────────────────────────────────
@@ -7778,8 +7805,10 @@ mod tests {
             account: "+1234567890".into(),
             group_id: None,
             allowed_from: vec!["*".into()],
+            allowed_groups: vec![],
             ignore_attachments: false,
             ignore_stories: true,
+            mention_only: false,
             proxy_url: None,
         });
         assert!(has_launchable_channels(&channels));
