@@ -157,7 +157,7 @@ async fn main() -> Result<()> {
 fn normalized_args() -> Vec<OsString> {
     std::env::args_os()
         .map(|arg| {
-            if arg == OsString::from("-nostrict") {
+            if arg == "-nostrict" {
                 OsString::from("--nostrict")
             } else {
                 arg
