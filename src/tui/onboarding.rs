@@ -1,25 +1,25 @@
 use anyhow::{Context, Result};
 use crossterm::{
-    ExecutableCommand,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
 };
 use ratatui::{
-    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout, Rect},
     style::Modifier,
     text::{Line, Span},
     widgets::{Block, Paragraph},
+    Frame, Terminal,
 };
 use std::io;
 
-use crate::config::Config;
 use crate::config::schema::{
     DiscordConfig, FeishuConfig, IMessageConfig, IrcConfig, LarkConfig, LarkReceiveMode,
     MatrixConfig, MattermostConfig, NextcloudTalkConfig, SignalConfig, SlackConfig, StreamMode,
     TelegramConfig, WhatsAppChatPolicy, WhatsAppConfig, WhatsAppWebMode,
 };
+use crate::config::Config;
 
 use super::theme;
 use super::widgets::{
@@ -779,10 +779,13 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                 config.channels_config.signal = Some(SignalConfig {
                     http_url: String::from("http://127.0.0.1:8080"),
                     account: String::from("YOUR_SIGNAL_PHONE_NUMBER"),
+                    response_name: None,
                     group_id: None,
                     allowed_from: vec![],
+                    allowed_groups: vec![],
                     ignore_attachments: false,
                     ignore_stories: true,
+                    mention_only: false,
                     proxy_url: None,
                 });
             }
@@ -1010,7 +1013,11 @@ async fn find_docker_container() -> Option<String> {
         .unwrap_or("")
         .trim()
         .to_string();
-    if name.is_empty() { None } else { Some(name) }
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 // ── Main loop ───────────────────────────────────────────────────────
@@ -3540,7 +3547,7 @@ mod tests {
         app.api_key_input = "sk-ant-api-key".to_string();
         // Model: Claude Opus
         app.model_idx = 2; // claude-opus-4-20250514
-        // Channel: Telegram
+                           // Channel: Telegram
         app.channel_idx = 0;
         // Web search: Brave
         app.search_provider_idx = 0;
