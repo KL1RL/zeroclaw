@@ -160,12 +160,30 @@ impl SignalChannel {
     fn inbound_sender_permitted(&self, sender: &str, data_msg: &DataMessage) -> bool {
         // Group allowlists let operators admit a shared Signal group without
         // enumerating every participant in `allowed_from`.
-        data_msg
+        let group_id = data_msg
             .group_info
             .as_ref()
             .and_then(|g| g.group_id.as_deref())
-            .is_some_and(|group_id| self.is_group_allowed(group_id))
-            || self.is_sender_allowed(sender)
+            .map(str::to_owned);
+        let group_allowed = group_id
+            .as_deref()
+            .is_some_and(|group_id| self.is_group_allowed(group_id));
+        let sender_allowed = self.is_sender_allowed(sender);
+        let permitted = group_allowed || sender_allowed;
+
+        tracing::debug!(
+            sender,
+            group_id = group_id.as_deref().unwrap_or("dm"),
+            group_allowed,
+            sender_allowed,
+            permitted,
+            mention_only = self.mention_only,
+            configured_group_id = self.group_id.as_deref().unwrap_or("<all>"),
+            allowed_groups = ?self.allowed_groups,
+            "Signal allowed_groups gate evaluated"
+        );
+
+        permitted
     }
 
     fn is_e164(recipient: &str) -> bool {
