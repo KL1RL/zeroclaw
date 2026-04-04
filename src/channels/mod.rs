@@ -4399,10 +4399,12 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
             Ok(Arc::new(SignalChannel::new(
                 sg.http_url.clone(),
                 sg.account.clone(),
+                sg.agent_name.clone(),
                 sg.group_id.clone(),
                 sg.allowed_from.clone(),
                 sg.ignore_attachments,
                 sg.ignore_stories,
+                sg.mention_only,
             )))
         }
         "matrix" => {
@@ -4678,10 +4680,12 @@ fn collect_configured_channels(
                 SignalChannel::new(
                     sig.http_url.clone(),
                     sig.account.clone(),
+                    sig.agent_name.clone(),
                     sig.group_id.clone(),
                     sig.allowed_from.clone(),
                     sig.ignore_attachments,
                     sig.ignore_stories,
+                    sig.mention_only,
                 )
                 .with_proxy_url(sig.proxy_url.clone()),
             ),

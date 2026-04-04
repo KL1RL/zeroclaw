@@ -24,10 +24,12 @@ enum RecipientTarget {
 pub struct SignalChannel {
     http_url: String,
     account: String,
+    agent_name: Option<String>,
     group_id: Option<String>,
     allowed_from: Vec<String>,
     ignore_attachments: bool,
     ignore_stories: bool,
+    mention_only: bool,
     /// Per-channel proxy URL override.
     proxy_url: Option<String>,
 }
@@ -76,19 +78,23 @@ impl SignalChannel {
     pub fn new(
         http_url: String,
         account: String,
+        agent_name: Option<String>,
         group_id: Option<String>,
         allowed_from: Vec<String>,
         ignore_attachments: bool,
         ignore_stories: bool,
+        mention_only: bool,
     ) -> Self {
         let http_url = http_url.trim_end_matches('/').to_string();
         Self {
             http_url,
             account,
+            agent_name: Self::normalize_agent_name(agent_name),
             group_id,
             allowed_from,
             ignore_attachments,
             ignore_stories,
+            mention_only,
             proxy_url: None,
         }
     }
@@ -125,6 +131,13 @@ impl SignalChannel {
         self.allowed_from.iter().any(|u| u == sender)
     }
 
+    fn normalize_agent_name(agent_name: Option<String>) -> Option<String> {
+        agent_name.and_then(|name| {
+            let normalized = name.trim().trim_start_matches('@').trim().to_string();
+            (!normalized.is_empty()).then_some(normalized)
+        })
+    }
+
     fn is_e164(recipient: &str) -> bool {
         let Some(number) = recipient.strip_prefix('+') else {
             return false;
@@ -148,6 +161,53 @@ impl SignalChannel {
         } else {
             RecipientTarget::Group(recipient.to_string())
         }
+    }
+
+    fn is_agent_name_separator(ch: char) -> bool {
+        ch.is_whitespace() || matches!(ch, ':' | ',' | ';' | '-')
+    }
+
+    fn match_agent_prefix<'a>(text: &'a str, agent_name: &str) -> Option<&'a str> {
+        let agent_name = agent_name.trim_start_matches('@');
+        if agent_name.is_empty() {
+            return None;
+        }
+
+        for candidate in [format!("@{agent_name}"), agent_name.to_string()] {
+            let prefix = text.get(..candidate.len())?;
+            if !prefix.eq_ignore_ascii_case(&candidate) {
+                continue;
+            }
+
+            let remainder = &text[candidate.len()..];
+            if remainder
+                .chars()
+                .next()
+                .is_none_or(Self::is_agent_name_separator)
+            {
+                return Some(remainder);
+            }
+        }
+
+        None
+    }
+
+    fn trim_mention_content(text: &str) -> String {
+        text.trim_start_matches(Self::is_agent_name_separator)
+            .trim()
+            .to_string()
+    }
+
+    fn normalize_content(&self, text: &str) -> Option<String> {
+        if !self.mention_only {
+            return Some(text.to_string());
+        }
+
+        let agent_name = self.agent_name.as_deref()?;
+        let trimmed = text.trim_start();
+        let remainder = Self::match_agent_prefix(trimmed, agent_name)?;
+        let normalized = Self::trim_mention_content(remainder);
+        (!normalized.is_empty()).then_some(normalized)
     }
 
     /// Check whether the message targets the configured group.
@@ -256,6 +316,8 @@ impl SignalChannel {
             return None;
         }
 
+        let content = self.normalize_content(text)?;
+
         let target = self.reply_target(data_msg, &sender);
 
         let timestamp = data_msg
@@ -275,7 +337,7 @@ impl SignalChannel {
             id: format!("sig_{timestamp}"),
             sender: sender.clone(),
             reply_target: target,
-            content: text.to_string(),
+            content,
             channel: "signal".to_string(),
             timestamp: timestamp / 1000, // millis → secs
             thread_ts: None,
@@ -472,7 +534,9 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec!["+1111111111".to_string()],
+            false,
             false,
             false,
         )
@@ -482,9 +546,24 @@ mod tests {
         SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             Some(group_id.to_string()),
             vec!["*".to_string()],
             true,
+            true,
+            false,
+        )
+    }
+
+    fn make_mention_only_channel(agent_name: &str) -> SignalChannel {
+        SignalChannel::new(
+            "http://127.0.0.1:8686".to_string(),
+            "+1234567890".to_string(),
+            Some(agent_name.to_string()),
+            None,
+            vec!["*".to_string()],
+            false,
+            false,
             true,
         )
     }
@@ -509,10 +588,12 @@ mod tests {
         let ch = make_channel();
         assert_eq!(ch.http_url, "http://127.0.0.1:8686");
         assert_eq!(ch.account, "+1234567890");
+        assert!(ch.agent_name.is_none());
         assert!(ch.group_id.is_none());
         assert_eq!(ch.allowed_from.len(), 1);
         assert!(!ch.ignore_attachments);
         assert!(!ch.ignore_stories);
+        assert!(!ch.mention_only);
     }
 
     #[test]
@@ -521,7 +602,9 @@ mod tests {
             "http://127.0.0.1:8686/".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec![],
+            false,
             false,
             false,
         );
@@ -552,7 +635,9 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec![],
+            false,
             false,
             false,
         );
@@ -741,7 +826,9 @@ mod tests {
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
             None,
+            None,
             vec!["*".to_string()],
+            false,
             false,
             false,
         );
@@ -773,8 +860,10 @@ mod tests {
         let ch = SignalChannel::new(
             "http://127.0.0.1:8686".to_string(),
             "+1234567890".to_string(),
+            None,
             Some("testgroup".to_string()),
             vec!["*".to_string()],
+            false,
             false,
             false,
         );
@@ -827,6 +916,59 @@ mod tests {
     fn process_envelope_denied_sender() {
         let ch = make_channel();
         let env = make_envelope(Some("+9999999999"), Some("Hello!"));
+        assert!(ch.process_envelope(&env).is_none());
+    }
+
+    #[test]
+    fn process_envelope_mention_only_requires_prefix() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("status update"));
+        assert!(ch.process_envelope(&env).is_none());
+    }
+
+    #[test]
+    fn process_envelope_mention_only_accepts_at_prefix() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("@Omnissiah status"));
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.content, "status");
+    }
+
+    #[test]
+    fn process_envelope_mention_only_accepts_bare_name_prefix() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("Omnissiah status"));
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.content, "status");
+    }
+
+    #[test]
+    fn process_envelope_mention_only_accepts_colon_prefix() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("Omnissiah: status"));
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.content, "status");
+    }
+
+    #[test]
+    fn process_envelope_mention_only_is_case_insensitive() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("@omnissiah, status"));
+        let msg = ch.process_envelope(&env).unwrap();
+        assert_eq!(msg.content, "status");
+    }
+
+    #[test]
+    fn process_envelope_mention_only_rejects_partial_name_match() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("Omnissiahic status"));
+        assert!(ch.process_envelope(&env).is_none());
+    }
+
+    #[test]
+    fn process_envelope_mention_only_drops_empty_after_prefix() {
+        let ch = make_mention_only_channel("Omnissiah");
+        let env = make_envelope(Some("+1111111111"), Some("@Omnissiah:"));
         assert!(ch.process_envelope(&env).is_none());
     }
 

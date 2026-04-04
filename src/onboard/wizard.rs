@@ -4502,10 +4502,12 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                 config.signal = Some(SignalConfig {
                     http_url: http_url.trim_end_matches('/').to_string(),
                     account: account.trim().to_string(),
+                    agent_name: config.signal.as_ref().and_then(|s| s.agent_name.clone()),
                     group_id,
                     allowed_from,
                     ignore_attachments,
                     ignore_stories,
+                    mention_only: config.signal.as_ref().is_some_and(|s| s.mention_only),
                     proxy_url: config.signal.as_ref().and_then(|s| s.proxy_url.clone()),
                 });
 
@@ -7776,10 +7778,12 @@ mod tests {
         channels.signal = Some(crate::config::schema::SignalConfig {
             http_url: "http://127.0.0.1:8686".into(),
             account: "+1234567890".into(),
+            agent_name: None,
             group_id: None,
             allowed_from: vec!["*".into()],
             ignore_attachments: false,
             ignore_stories: true,
+            mention_only: false,
             proxy_url: None,
         });
         assert!(has_launchable_channels(&channels));

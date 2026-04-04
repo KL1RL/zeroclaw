@@ -200,11 +200,17 @@ Xem [Hướng dẫn Matrix E2EE](matrix-e2ee-guide.md) để xử lý sự cố 
 [channels_config.signal]
 http_url = "http://127.0.0.1:8686"
 account = "+1234567890"
+agent_name = "Omnissiah"             # tùy chọn: bắt buộc khi mention_only = true
 group_id = "dm"                    # tùy chọn: "dm" / group id / bỏ qua
 allowed_from = ["*"]
 ignore_attachments = false
 ignore_stories = true
+mention_only = true                 # tùy chọn: chỉ nhận tin nhắn bắt đầu bằng @Omnissiah / Omnissiah / Omnissiah:
 ```
+
+- `agent_name` chỉ dành cho Signal và điều khiển tiền tố văn bản mà `mention_only` dùng để lọc.
+- Khi `mention_only = true`, Signal chỉ chấp nhận tin nhắn bắt đầu bằng `@Name`, `Name` hoặc `Name:`.
+- Tiền tố khớp sẽ bị loại khỏi nội dung trước khi chuyển cho agent.
 
 ### 4.7 WhatsApp
 
@@ -403,7 +409,7 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 | Slack | `Slack channel listening on #` | `Slack: ignoring message from unauthorized user:` | `Slack poll error:` / `Slack parse error:` |
 | Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
 | Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
-| Signal | `Signal channel listening via SSE on` | (kiểm tra allowlist được thực thi bởi `allowed_from`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
+| Signal | `Signal channel listening via SSE on` | (kiểm tra allowlist được thực thi bởi `allowed_from`; lọc tiền tố tùy chọn được thực thi bởi `mention_only` + `agent_name`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
 | WhatsApp (channel) | `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
 | Webhook / WhatsApp (gateway) | `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
 | Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |

@@ -219,11 +219,17 @@ allowed_users = [\"*\"]
 [channels_config.signal]
 http_url = \"http://127.0.0.1:8686\"
 account = \"+1234567890\"
+agent_name = \"Omnissiah\"             # 可选：当 mention_only = true 时需要设置
 group_id = \"dm\"                    # 可选: \"dm\" / 群组 ID / 省略
 allowed_from = [\"*\"]
 ignore_attachments = false
 ignore_stories = true
+mention_only = true                 # 可选：只接收以 @Omnissiah / Omnissiah / Omnissiah: 开头的消息
 ```
+
+- `agent_name` 仅用于 Signal，用来定义 `mention_only` 的纯文本前缀。
+- 当 `mention_only = true` 时，Signal 只接受以 `@Name`、`Name` 或 `Name:` 开头的消息。
+- 匹配到的前缀会在消息转发给 agent 之前被移除。
 
 ### 4.7 WhatsApp
 
@@ -490,7 +496,7 @@ rg -n \"Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|
 | Slack | `Slack channel listening on #` / `Slack channel_id not set (or '*'); listening across all accessible channels.` | `Slack: ignoring message from unauthorized user:` | `Slack poll error:` / `Slack parse error:` / `Slack channel discovery failed:` |
 | Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
 | Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
-| Signal | `Signal channel listening via SSE on` |（白名单检查由 `allowed_from` 强制执行）| `Signal SSE returned ...` / `Signal SSE connect error:` |
+| Signal | `Signal channel listening via SSE on` |（白名单检查由 `allowed_from` 强制执行；可选的前缀过滤由 `mention_only` + `agent_name` 强制执行）| `Signal SSE returned ...` / `Signal SSE connect error:` |
 | WhatsApp（渠道）| `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
 | Webhook / WhatsApp（网关）| `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
 | Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |

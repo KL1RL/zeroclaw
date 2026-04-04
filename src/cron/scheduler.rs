@@ -575,10 +575,12 @@ pub(crate) async fn deliver_announcement(
             let channel = SignalChannel::new(
                 sg.http_url.clone(),
                 sg.account.clone(),
+                sg.agent_name.clone(),
                 sg.group_id.clone(),
                 sg.allowed_from.clone(),
                 sg.ignore_attachments,
                 sg.ignore_stories,
+                sg.mention_only,
             );
             channel
                 .send(&SendMessage::new(safe_output.as_str(), target))

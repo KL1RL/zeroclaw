@@ -244,11 +244,17 @@ See [Matrix E2EE Guide](../../security/matrix-e2ee-guide.md) for encrypted-room 
 [channels_config.signal]
 http_url = "http://127.0.0.1:8686"
 account = "+1234567890"
+agent_name = "Omnissiah"             # optional: required when mention_only = true
 group_id = "dm"                    # optional: "dm" / group id / omitted
 allowed_from = ["*"]
 ignore_attachments = false
 ignore_stories = true
+mention_only = true                 # optional: only pass messages starting with @Omnissiah / Omnissiah / Omnissiah:
 ```
+
+- `agent_name` is Signal-only and controls the plain-text prefix used by `mention_only`.
+- When `mention_only = true`, Signal only accepts messages whose text starts with `@Name`, `Name`, or `Name:`.
+- The matched prefix is stripped before the message is forwarded to the agent.
 
 ### 4.7 WhatsApp
 
@@ -521,7 +527,7 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 | Slack | `Slack channel listening on #` / `Slack channel_id not set (or '*'); listening across all accessible channels.` | `Slack: ignoring message from unauthorized user:` | `Slack poll error:` / `Slack parse error:` / `Slack channel discovery failed:` |
 | Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
 | Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
-| Signal | `Signal channel listening via SSE on` | (allowlist checks are enforced by `allowed_from`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
+| Signal | `Signal channel listening via SSE on` | (allowlist checks are enforced by `allowed_from`; optional prefix gating is enforced by `mention_only` + `agent_name`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
 | WhatsApp (channel) | `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
 | Webhook / WhatsApp (gateway) | `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
 | Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |

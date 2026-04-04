@@ -6731,6 +6731,10 @@ pub struct SignalConfig {
     pub http_url: String,
     /// E.164 phone number of the signal-cli account (e.g. "+1234567890").
     pub account: String,
+    /// Optional plain-text agent name used for Signal mention gating.
+    /// Example: `Omnissiah` matches `@Omnissiah status` and `Omnissiah: status`.
+    #[serde(default)]
+    pub agent_name: Option<String>,
     /// Optional group ID to filter messages.
     /// - `None` or omitted: accept all messages (DMs and groups)
     /// - `"dm"`: only accept direct messages
@@ -6746,6 +6750,10 @@ pub struct SignalConfig {
     /// Skip incoming story messages.
     #[serde(default)]
     pub ignore_stories: bool,
+    /// When true, only messages starting with `agent_name` are processed.
+    /// Supported prefixes are `@Name`, `Name`, and `Name:`.
+    #[serde(default)]
+    pub mention_only: bool,
     /// Per-channel proxy URL (http, https, socks5, socks5h).
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
@@ -12491,20 +12499,24 @@ allowed_users = ["@ops:matrix.org"]
         let sc = SignalConfig {
             http_url: "http://127.0.0.1:8686".into(),
             account: "+1234567890".into(),
+            agent_name: Some("Omnissiah".into()),
             group_id: Some("group123".into()),
             allowed_from: vec!["+1111111111".into()],
             ignore_attachments: true,
             ignore_stories: false,
+            mention_only: true,
             proxy_url: None,
         };
         let json = serde_json::to_string(&sc).unwrap();
         let parsed: SignalConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.http_url, "http://127.0.0.1:8686");
         assert_eq!(parsed.account, "+1234567890");
+        assert_eq!(parsed.agent_name.as_deref(), Some("Omnissiah"));
         assert_eq!(parsed.group_id.as_deref(), Some("group123"));
         assert_eq!(parsed.allowed_from.len(), 1);
         assert!(parsed.ignore_attachments);
         assert!(!parsed.ignore_stories);
+        assert!(parsed.mention_only);
     }
 
     #[test]
@@ -12512,28 +12524,34 @@ allowed_users = ["@ops:matrix.org"]
         let sc = SignalConfig {
             http_url: "http://localhost:8080".into(),
             account: "+9876543210".into(),
+            agent_name: None,
             group_id: None,
             allowed_from: vec!["*".into()],
             ignore_attachments: false,
             ignore_stories: true,
+            mention_only: false,
             proxy_url: None,
         };
         let toml_str = toml::to_string(&sc).unwrap();
         let parsed: SignalConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.http_url, "http://localhost:8080");
         assert_eq!(parsed.account, "+9876543210");
+        assert!(parsed.agent_name.is_none());
         assert!(parsed.group_id.is_none());
         assert!(parsed.ignore_stories);
+        assert!(!parsed.mention_only);
     }
 
     #[test]
     async fn signal_config_defaults() {
         let json = r#"{"http_url":"http://127.0.0.1:8686","account":"+1234567890"}"#;
         let parsed: SignalConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.agent_name.is_none());
         assert!(parsed.group_id.is_none());
         assert!(parsed.allowed_from.is_empty());
         assert!(!parsed.ignore_attachments);
         assert!(!parsed.ignore_stories);
+        assert!(!parsed.mention_only);
     }
 
     #[test]

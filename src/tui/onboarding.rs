@@ -797,10 +797,12 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                 config.channels_config.signal = Some(SignalConfig {
                     http_url: String::from("http://127.0.0.1:8080"),
                     account: String::from("YOUR_SIGNAL_PHONE_NUMBER"),
+                    agent_name: None,
                     group_id: None,
                     allowed_from: vec![],
                     ignore_attachments: false,
                     ignore_stories: true,
+                    mention_only: false,
                     proxy_url: None,
                 });
             }
