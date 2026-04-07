@@ -333,6 +333,15 @@ impl SignalChannel {
                 .unwrap_or(u64::MAX)
             });
 
+        // tracing::info!(
+        //     "Signal channel: returning ChannelMessage id={} sender={} reply_target={} content={} timestamp={}",
+        //     format!("sig_{timestamp}"),
+        //     sender,
+        //     target,
+        //     content,
+        //     timestamp / 1000
+        // );
+
         Some(ChannelMessage {
             id: format!("sig_{timestamp}"),
             sender: sender.clone(),
