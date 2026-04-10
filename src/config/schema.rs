@@ -37,6 +37,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "channel.whatsapp",
     "tool.browser",
     "tool.composio",
+    "tool.home_assistant",
     "tool.http_request",
     "tool.pushover",
     "tool.web_search",
@@ -233,6 +234,10 @@ pub struct Config {
     /// Composio managed OAuth tools integration (`[composio]`).
     #[serde(default)]
     pub composio: ComposioConfig,
+
+    /// Home Assistant REST tool configuration (`[home_assistant]`).
+    #[serde(default)]
+    pub home_assistant: HomeAssistantConfig,
 
     /// Microsoft 365 Graph API integration (`[microsoft365]`).
     #[serde(default)]
@@ -2382,6 +2387,144 @@ impl Default for Microsoft365Config {
             user_id: None,
         }
     }
+}
+
+/// Per-channel write access rule for the Home Assistant tool.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct HomeAssistantWriteChannelConfig {
+    /// Channel name allowed to perform write operations, e.g. `telegram`.
+    #[serde(default)]
+    pub channel: String,
+    /// Exact channel IDs / reply targets allowed to perform writes on that channel.
+    #[serde(default)]
+    pub channel_ids: Vec<String>,
+}
+
+/// Home Assistant REST tool configuration (`[home_assistant]`).
+///
+/// Read operations are available when enabled. Write operations are denied by
+/// default and require all configured allowlists to match.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct HomeAssistantConfig {
+    /// Enable the `home_assistant` tool. Default: `false`.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Base URL for Home Assistant, e.g. `https://ha.example.com`.
+    #[serde(default)]
+    pub url: String,
+    /// Disable strict TLS certificate validation. Default: `false`.
+    #[serde(default)]
+    pub disable_strict_ssl: bool,
+    /// Domains the tool may call for write operations, e.g. `light`.
+    /// Empty by default, which denies all writes.
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    /// Service names the tool may call for write operations, e.g. `turn_on`.
+    /// Empty by default, which denies all writes.
+    #[serde(default)]
+    pub allowed_services: Vec<String>,
+    /// Exact entity IDs allowed for write operations, e.g. `light.kitchen`.
+    /// Empty by default, which denies all writes.
+    #[serde(default)]
+    pub allowed_entity_ids: Vec<String>,
+    /// Channel + channel-ID pairs allowed to perform write operations.
+    /// Empty by default, which denies all writes.
+    #[serde(default)]
+    pub write_channels: Vec<HomeAssistantWriteChannelConfig>,
+}
+
+impl HomeAssistantConfig {
+    pub fn validate(&self) -> Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let url = self.url.trim();
+        if url.is_empty() {
+            anyhow::bail!(
+                "home_assistant.url must not be empty when home_assistant.enabled = true"
+            );
+        }
+
+        let parsed = reqwest::Url::parse(url)
+            .with_context(|| "home_assistant.url must be a valid absolute URL")?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            anyhow::bail!("home_assistant.url must use http or https");
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            anyhow::bail!("home_assistant.url must not embed credentials");
+        }
+        if parsed.query().is_some() || parsed.fragment().is_some() {
+            anyhow::bail!("home_assistant.url must not include a query string or fragment");
+        }
+
+        for (idx, value) in self.allowed_domains.iter().enumerate() {
+            validate_home_assistant_name(value, &format!("home_assistant.allowed_domains[{idx}]"))?;
+        }
+        for (idx, value) in self.allowed_services.iter().enumerate() {
+            validate_home_assistant_name(
+                value,
+                &format!("home_assistant.allowed_services[{idx}]"),
+            )?;
+        }
+        for (idx, value) in self.allowed_entity_ids.iter().enumerate() {
+            validate_home_assistant_entity_id(
+                value,
+                &format!("home_assistant.allowed_entity_ids[{idx}]"),
+            )?;
+        }
+        for (idx, rule) in self.write_channels.iter().enumerate() {
+            let channel = rule.channel.trim();
+            if channel.is_empty() {
+                anyhow::bail!("home_assistant.write_channels[{idx}].channel must not be empty");
+            }
+            if rule.channel_ids.is_empty() {
+                anyhow::bail!(
+                    "home_assistant.write_channels[{idx}].channel_ids must contain at least one channel ID"
+                );
+            }
+            for (id_idx, channel_id) in rule.channel_ids.iter().enumerate() {
+                if channel_id.trim().is_empty() {
+                    anyhow::bail!(
+                        "home_assistant.write_channels[{idx}].channel_ids[{id_idx}] must not be empty"
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_home_assistant_name(value: &str, field_name: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{field_name} must not be empty");
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+    {
+        anyhow::bail!("{field_name} must use only lowercase alphanumeric, underscore, and hyphen");
+    }
+    Ok(())
+}
+
+fn validate_home_assistant_entity_id(value: &str, field_name: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{field_name} must not be empty");
+    }
+    if !trimmed.contains('.') {
+        anyhow::bail!("{field_name} must include a domain prefix like 'light.kitchen'");
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+    {
+        anyhow::bail!("{field_name} must use only alphanumeric, underscore, dot, and hyphen");
+    }
+    Ok(())
 }
 
 // ── Secrets (encrypted credential store) ────────────────────────
@@ -8405,6 +8548,7 @@ impl Default for Config {
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            home_assistant: HomeAssistantConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
@@ -9973,6 +10117,7 @@ impl Config {
         // Proxy (delegate to existing validation)
         self.proxy.validate()?;
         self.cloud_ops.validate()?;
+        self.home_assistant.validate()?;
 
         // Notion
         if self.notion.enabled {
@@ -11580,6 +11725,7 @@ auto_save = true
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            home_assistant: HomeAssistantConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
@@ -12110,6 +12256,7 @@ default_temperature = 0.7
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            home_assistant: HomeAssistantConfig::default(),
             microsoft365: Microsoft365Config::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),

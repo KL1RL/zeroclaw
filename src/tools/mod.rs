@@ -53,6 +53,7 @@ pub mod hardware_board_info;
 pub mod hardware_memory_map;
 #[cfg(feature = "hardware")]
 pub mod hardware_memory_read;
+pub mod home_assistant;
 pub mod http_request;
 pub mod image_gen;
 pub mod image_info;
@@ -154,6 +155,7 @@ pub use hardware_board_info::HardwareBoardInfoTool;
 pub use hardware_memory_map::HardwareMemoryMapTool;
 #[cfg(feature = "hardware")]
 pub use hardware_memory_read::HardwareMemoryReadTool;
+pub use home_assistant::HomeAssistantTool;
 pub use http_request::HttpRequestTool;
 pub use image_gen::ImageGenTool;
 pub use image_info::ImageInfoTool;
@@ -548,6 +550,10 @@ pub fn all_tools_with_runtime(
             http_config.timeout_secs,
             http_config.allow_private_hosts,
         )));
+    }
+
+    if root_config.home_assistant.enabled {
+        tool_arcs.push(Arc::new(HomeAssistantTool::new(security.clone())));
     }
 
     if web_fetch_config.enabled {

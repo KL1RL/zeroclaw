@@ -3164,6 +3164,8 @@ pub(crate) async fn run_tool_call_loop(
                 activated_tools,
                 observer,
                 cancellation_token.as_ref(),
+                channel_name,
+                channel_reply_target,
             )
             .await?
         } else {
@@ -3173,6 +3175,8 @@ pub(crate) async fn run_tool_call_loop(
                 activated_tools,
                 observer,
                 cancellation_token.as_ref(),
+                channel_name,
+                channel_reply_target,
             )
             .await?
         };
@@ -5158,8 +5162,17 @@ mod tests {
             .expect("should produce a sample whose byte index 300 is not a char boundary");
 
         let observer = NoopObserver;
-        let result =
-            execute_one_tool("unknown_tool", call_arguments, &[], None, &observer, None).await;
+        let result = execute_one_tool(
+            "unknown_tool",
+            call_arguments,
+            &[],
+            None,
+            &observer,
+            None,
+            "cli",
+            None,
+        )
+        .await;
         assert!(result.is_ok(), "execute_one_tool should not panic or error");
 
         let outcome = result.unwrap();
@@ -5187,6 +5200,8 @@ mod tests {
             &[],
             Some(&activated),
             &observer,
+            None,
+            "cli",
             None,
         )
         .await

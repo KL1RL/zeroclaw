@@ -214,13 +214,27 @@ impl HomeAssistantClient {
 pub async fn resolve_runtime_context() -> anyhow::Result<HomeAssistantRuntimeContext> {
     let (config_dir, workspace_dir) =
         crate::config::schema::resolve_runtime_dirs_for_onboarding().await?;
-    load_runtime_context(&config_dir, &workspace_dir).await
+    Ok(load_runtime_context_and_config(&config_dir, &workspace_dir)
+        .await?
+        .0)
 }
 
 pub async fn load_runtime_context(
     config_dir: &Path,
     workspace_dir: &Path,
 ) -> anyhow::Result<HomeAssistantRuntimeContext> {
+    Ok(load_runtime_context_and_config(config_dir, workspace_dir)
+        .await?
+        .0)
+}
+
+pub async fn load_runtime_context_and_config(
+    config_dir: &Path,
+    workspace_dir: &Path,
+) -> anyhow::Result<(
+    HomeAssistantRuntimeContext,
+    crate::config::HomeAssistantConfig,
+)> {
     let config_path = config_dir.join("config.toml");
     let contents = tokio::fs::read_to_string(&config_path)
         .await
@@ -244,13 +258,17 @@ pub async fn load_runtime_context(
         );
     }
 
-    config.home_assistant.validate()?;
+    let home_assistant = config.home_assistant;
+    home_assistant.validate()?;
 
-    Ok(HomeAssistantRuntimeContext {
-        base_url: normalize_base_url(&config.home_assistant.url)?,
-        token: read_home_assistant_token(workspace_dir).await?,
-        disable_strict_ssl: config.home_assistant.disable_strict_ssl,
-    })
+    Ok((
+        HomeAssistantRuntimeContext {
+            base_url: normalize_base_url(&home_assistant.url)?,
+            token: read_home_assistant_token(workspace_dir).await?,
+            disable_strict_ssl: home_assistant.disable_strict_ssl,
+        },
+        home_assistant,
+    ))
 }
 
 pub fn normalize_base_url(raw_url: &str) -> anyhow::Result<reqwest::Url> {
