@@ -1,11 +1,11 @@
 use super::traits::{Tool, ToolResult};
 use crate::agent::tool_execution::current_tool_channel_context;
 use crate::config::HomeAssistantConfig;
-use crate::home_assistant_client::{load_runtime_context_and_config, HomeAssistantClient};
-use crate::security::policy::ToolOperation;
+use crate::home_assistant_client::{HomeAssistantClient, load_runtime_context_and_config};
 use crate::security::SecurityPolicy;
+use crate::security::policy::ToolOperation;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -74,6 +74,27 @@ impl HomeAssistantTool {
             })?)),
             None => Ok(None),
         }
+    }
+
+    fn build_call_service_data(args: &Value) -> anyhow::Result<Option<Value>> {
+        let mut data = match args.get("data") {
+            Some(Value::Object(map)) => Some(map.clone()),
+            Some(_) => return Err(anyhow::anyhow!("'data' must be an object when provided")),
+            None => None,
+        };
+
+        if let Some(brightness_pct) = args.get("brightness_pct") {
+            let value = brightness_pct.as_i64().ok_or_else(|| {
+                anyhow::anyhow!("'brightness_pct' must be an integer from 0 to 100 when provided")
+            })?;
+            if !(0..=100).contains(&value) {
+                anyhow::bail!("'brightness_pct' must be between 0 and 100")
+            }
+            data.get_or_insert_with(serde_json::Map::new)
+                .insert("brightness_pct".to_string(), Value::Number(value.into()));
+        }
+
+        Ok(data.map(Value::Object))
     }
 
     fn ensure_read_allowed(action: &str) -> anyhow::Result<()> {
@@ -268,6 +289,12 @@ impl Tool for HomeAssistantTool {
                     "type": "object",
                     "description": "Optional extra service payload for call_service. Write-restricted mode forbids putting entity selectors in data."
                 },
+                "brightness_pct": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "Optional shortcut for light.turn_on brightness percentage. Mapped to data.brightness_pct for call_service."
+                },
                 "target": {
                     "type": "object",
                     "description": "Optional call_service target object. Write-restricted mode only allows target.entity_id."
@@ -345,19 +372,34 @@ impl Tool for HomeAssistantTool {
                     ));
                 };
                 let entity_id = args.get("entity_id").and_then(Value::as_str);
-                let data = args.get("data");
+                let data = match Self::build_call_service_data(&args) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Self::error_result(error.to_string())),
+                };
                 let target = args.get("target");
                 let return_response = match Self::validate_return_response(&args) {
                     Ok(value) => value,
                     Err(error) => return Ok(Self::error_result(error.to_string())),
                 };
-                if let Err(error) =
-                    Self::ensure_write_allowed(&config, domain, service, entity_id, data, target)
-                {
+                if let Err(error) = Self::ensure_write_allowed(
+                    &config,
+                    domain,
+                    service,
+                    entity_id,
+                    data.as_ref(),
+                    target,
+                ) {
                     Err(error)
                 } else {
                     client
-                        .call_service(domain, service, entity_id, data, target, return_response)
+                        .call_service(
+                            domain,
+                            service,
+                            entity_id,
+                            data.as_ref(),
+                            target,
+                            return_response,
+                        )
                         .await
                 }
             }
@@ -593,5 +635,37 @@ mod tests {
         .unwrap();
 
         assert!(result.success, "expected success, got {:?}", result.error);
+    }
+
+    #[test]
+    fn build_call_service_data_merges_top_level_brightness_pct() {
+        let args = json!({
+            "action": "call_service",
+            "data": { "transition": 2 },
+            "brightness_pct": 50
+        });
+
+        let data = HomeAssistantTool::build_call_service_data(&args)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            data,
+            json!({
+                "transition": 2,
+                "brightness_pct": 50
+            })
+        );
+    }
+
+    #[test]
+    fn build_call_service_data_rejects_out_of_range_brightness_pct() {
+        let args = json!({
+            "action": "call_service",
+            "brightness_pct": 101
+        });
+
+        let err = HomeAssistantTool::build_call_service_data(&args).unwrap_err();
+        assert!(err.to_string().contains("between 0 and 100"));
     }
 }
