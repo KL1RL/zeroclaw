@@ -2501,6 +2501,9 @@ fn validate_home_assistant_name(value: &str, field_name: &str) -> Result<()> {
     if trimmed.is_empty() {
         anyhow::bail!("{field_name} must not be empty");
     }
+    if trimmed == "*" {
+        return Ok(());
+    }
     if !trimmed
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
@@ -2514,6 +2517,9 @@ fn validate_home_assistant_entity_id(value: &str, field_name: &str) -> Result<()
     let trimmed = value.trim();
     if trimmed.is_empty() {
         anyhow::bail!("{field_name} must not be empty");
+    }
+    if trimmed == "*" {
+        return Ok(());
     }
     if !trimmed.contains('.') {
         anyhow::bail!("{field_name} must include a domain prefix like 'light.kitchen'");

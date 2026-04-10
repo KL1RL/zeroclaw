@@ -1,11 +1,11 @@
 use super::traits::{Tool, ToolResult};
 use crate::agent::tool_execution::current_tool_channel_context;
 use crate::config::HomeAssistantConfig;
-use crate::home_assistant_client::{HomeAssistantClient, load_runtime_context_and_config};
-use crate::security::SecurityPolicy;
+use crate::home_assistant_client::{load_runtime_context_and_config, HomeAssistantClient};
 use crate::security::policy::ToolOperation;
+use crate::security::SecurityPolicy;
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -103,11 +103,10 @@ impl HomeAssistantTool {
         })?;
 
         let write_channel_allowed = config.write_channels.iter().any(|rule| {
-            rule.channel.eq_ignore_ascii_case(&context.channel_name)
-                && rule
-                    .channel_ids
-                    .iter()
-                    .any(|candidate| candidate == reply_target)
+            allowlist_matches_case_insensitive(
+                std::slice::from_ref(&rule.channel),
+                &context.channel_name,
+            ) && allowlist_matches_exact(&rule.channel_ids, reply_target)
         });
         if !write_channel_allowed {
             anyhow::bail!(
@@ -117,22 +116,14 @@ impl HomeAssistantTool {
             );
         }
 
-        if !config
-            .allowed_domains
-            .iter()
-            .any(|candidate| candidate.eq_ignore_ascii_case(domain))
-        {
+        if !allowlist_matches_case_insensitive(&config.allowed_domains, domain) {
             anyhow::bail!(
                 "Home Assistant write denied: domain '{}' is not in home_assistant.allowed_domains",
                 domain
             );
         }
 
-        if !config
-            .allowed_services
-            .iter()
-            .any(|candidate| candidate.eq_ignore_ascii_case(service))
-        {
+        if !allowlist_matches_case_insensitive(&config.allowed_services, service) {
             anyhow::bail!(
                 "Home Assistant write denied: service '{}' is not in home_assistant.allowed_services",
                 service
@@ -147,11 +138,7 @@ impl HomeAssistantTool {
         }
 
         for entity_id in entity_ids {
-            if !config
-                .allowed_entity_ids
-                .iter()
-                .any(|candidate| candidate.eq_ignore_ascii_case(&entity_id))
-            {
+            if !allowlist_matches_case_insensitive(&config.allowed_entity_ids, &entity_id) {
                 anyhow::bail!(
                     "Home Assistant write denied: entity_id '{}' is not in home_assistant.allowed_entity_ids",
                     entity_id
@@ -161,6 +148,18 @@ impl HomeAssistantTool {
 
         Ok(())
     }
+}
+
+fn allowlist_matches_case_insensitive(allowlist: &[String], candidate: &str) -> bool {
+    allowlist
+        .iter()
+        .any(|allowed| allowed == "*" || allowed.eq_ignore_ascii_case(candidate))
+}
+
+fn allowlist_matches_exact(allowlist: &[String], candidate: &str) -> bool {
+    allowlist
+        .iter()
+        .any(|allowed| allowed == "*" || allowed == candidate)
 }
 
 fn collect_write_entity_ids(
@@ -241,7 +240,7 @@ impl Tool for HomeAssistantTool {
     }
 
     fn description(&self) -> &str {
-        "Interact with Home Assistant via its REST API. Read operations are limited to services and entity state lookups when [home_assistant] is configured. Write operations are denied by default and only allowed for configured domains, services, entity IDs, and channel/channel-ID pairs."
+        "Interact with Home Assistant via its REST API. Read operations are limited to services and entity state lookups when [home_assistant] is configured. Write operations are denied by default and only allowed for configured domains, services, entity IDs, and channel/channel-ID pairs; use '*' inside those allowlists to match any value."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -532,6 +531,62 @@ mod tests {
                 "domain": "light",
                 "service": "turn_off",
                 "entity_id": "light.kitchen"
+            })),
+        )
+        .await
+        .unwrap();
+
+        assert!(result.success, "expected success, got {:?}", result.error);
+    }
+
+    #[tokio::test]
+    async fn call_service_wildcards_allow_any_channel_target_and_entity() {
+        let temp = TempDir::new().unwrap();
+        let active_config_dir = temp.path().join("profiles").join("alpha");
+        let workspace_dir = active_config_dir.join("workspace");
+        tokio::fs::create_dir_all(&workspace_dir).await.unwrap();
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/services/switch/turn_on"))
+            .and(header("authorization", "Bearer test-ha-token"))
+            .and(body_json(json!({
+                "entity_id": "switch.office_fan"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+
+        tokio::fs::write(
+            active_config_dir.join("config.toml"),
+            format!(
+                "[home_assistant]\nenabled = true\nurl = \"{}\"\ndisable_strict_ssl = false\nallowed_domains = [\"*\"]\nallowed_services = [\"*\"]\nallowed_entity_ids = [\"*\"]\n\n[[home_assistant.write_channels]]\nchannel = \"*\"\nchannel_ids = [\"*\"]\n",
+                server.uri()
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            workspace_dir.join(".env"),
+            "HOME_ASSISTANT_ACCESS_TOKEN=test-ha-token\n",
+        )
+        .await
+        .unwrap();
+
+        let tool = HomeAssistantTool::new_with_runtime_dirs(
+            test_security(),
+            active_config_dir,
+            workspace_dir,
+        );
+
+        let result = scope_tool_channel_context(
+            "signal",
+            Some("+19073783968"),
+            tool.execute(json!({
+                "action": "call_service",
+                "domain": "switch",
+                "service": "turn_on",
+                "entity_id": "switch.office_fan"
             })),
         )
         .await
