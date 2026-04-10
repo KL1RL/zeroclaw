@@ -1196,7 +1196,10 @@ impl Agent {
     }
 
     pub async fn run_interactive(&mut self) -> Result<()> {
-        println!("🦀 ZeroClaw Interactive Mode");
+        println!(
+            "🦀 ZeroClaw Interactive Mode ({})",
+            crate::build_info::version_tag()
+        );
         println!("Type /quit to exit.\n");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);

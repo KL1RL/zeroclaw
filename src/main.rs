@@ -74,6 +74,7 @@ fn pause_after_no_command_help() {
 mod agent;
 mod approval;
 mod auth;
+mod build_info;
 mod channels;
 mod cli_input;
 mod commands;
@@ -154,7 +155,7 @@ enum EstopLevelArg {
 #[derive(Parser, Debug)]
 #[command(name = "zeroclaw")]
 #[command(author = "theonlyhennygod")]
-#[command(version)]
+#[command(version = build_info::VERSION)]
 #[command(about = "The fastest, smallest AI assistant.", long_about = None)]
 struct Cli {
     #[arg(long, global = true)]
@@ -1175,9 +1176,15 @@ async fn main() -> Result<()> {
             let port = port.unwrap_or(config.gateway.port);
             let host = host.unwrap_or_else(|| config.gateway.host.clone());
             if port == 0 {
-                info!("🧠 Starting ZeroClaw Daemon on {host} (random port)");
+                info!(
+                    "🧠 Starting ZeroClaw Daemon {} on {host} (random port)",
+                    build_info::version_tag()
+                );
             } else {
-                info!("🧠 Starting ZeroClaw Daemon on {host}:{port}");
+                info!(
+                    "🧠 Starting ZeroClaw Daemon {} on {host}:{port}",
+                    build_info::version_tag()
+                );
             }
             Box::pin(daemon::run(config, host, port)).await
         }
@@ -1208,7 +1215,7 @@ async fn main() -> Result<()> {
             }
             println!("🦀 ZeroClaw Status");
             println!();
-            println!("Version:     {}", env!("CARGO_PKG_VERSION"));
+            println!("Version:     {}", build_info::long_version_tag());
             println!("Workspace:   {}", config.workspace_dir.display());
             println!("Config:      {}", config.config_path.display());
             println!();

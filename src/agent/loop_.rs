@@ -4052,7 +4052,10 @@ pub async fn run(
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
     } else {
-        println!("🦀 ZeroClaw Interactive Mode");
+        println!(
+            "🦀 ZeroClaw Interactive Mode ({})",
+            crate::build_info::version_tag()
+        );
         println!("Type /help for commands.\n");
         let cli = crate::channels::CliChannel::new();
 

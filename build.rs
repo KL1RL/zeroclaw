@@ -4,6 +4,8 @@ use std::process::Command;
 use std::time::SystemTime;
 
 fn main() {
+    emit_git_build_info();
+
     let dist_dir = Path::new("web/dist");
     let web_dir = Path::new("web");
 
@@ -85,6 +87,53 @@ fn main() {
 
     ensure_dist_dir(dist_dir);
     ensure_dashboard_assets(dist_dir);
+}
+
+fn emit_git_build_info() {
+    println!("cargo:rerun-if-env-changed=ZEROCLAW_GIT_COMMIT");
+
+    let git_dir = match Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+    {
+        Some(path) => path.trim().to_string(),
+        None => {
+            println!("cargo:rustc-env=ZEROCLAW_GIT_COMMIT=unknown");
+            return;
+        }
+    };
+
+    let git_dir = Path::new(&git_dir);
+    println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        git_dir.join("packed-refs").display()
+    );
+
+    if let Ok(output) = Command::new("git").args(["symbolic-ref", "HEAD"]).output()
+        && output.status.success()
+        && let Ok(head_ref) = String::from_utf8(output.stdout)
+    {
+        println!(
+            "cargo:rerun-if-changed={}",
+            git_dir.join(head_ref.trim()).display()
+        );
+    }
+
+    let git_commit = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|commit| commit.trim().to_string())
+        .filter(|commit| !commit.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    println!("cargo:rustc-env=ZEROCLAW_GIT_COMMIT={git_commit}");
 }
 
 fn web_build_required(web_dir: &Path, dist_dir: &Path) -> bool {
