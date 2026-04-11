@@ -8,6 +8,13 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 const GROUP_TARGET_PREFIX: &str = "group:";
+const SUPPORTED_SIGNAL_IMAGE_MIME_TYPES: &[&str] = &[
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "image/bmp",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RecipientTarget {
@@ -63,7 +70,17 @@ struct DataMessage {
     #[serde(rename = "groupInfo", default)]
     group_info: Option<GroupInfo>,
     #[serde(default)]
-    attachments: Option<Vec<serde_json::Value>>,
+    attachments: Option<Vec<SignalAttachment>>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct SignalAttachment {
+    #[serde(rename = "contentType", default)]
+    content_type: Option<String>,
+    #[serde(default)]
+    filename: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +124,34 @@ impl SignalChannel {
             self.proxy_url.as_deref(),
         );
         builder.build().expect("Signal HTTP client should build")
+    }
+
+    fn normalize_attachment_mime(attachment: &SignalAttachment) -> Option<String> {
+        let mime = attachment
+            .content_type
+            .as_deref()
+            .map(|value| value.split(';').next().unwrap_or_default().trim())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase())
+            .or_else(|| {
+                let ext = attachment
+                    .filename
+                    .as_deref()
+                    .and_then(|name| name.rsplit_once('.').map(|(_, ext)| ext))?
+                    .to_ascii_lowercase();
+                match ext.as_str() {
+                    "png" => Some("image/png".to_string()),
+                    "jpg" | "jpeg" => Some("image/jpeg".to_string()),
+                    "webp" => Some("image/webp".to_string()),
+                    "gif" => Some("image/gif".to_string()),
+                    "bmp" => Some("image/bmp".to_string()),
+                    _ => None,
+                }
+            })?;
+
+        SUPPORTED_SIGNAL_IMAGE_MIME_TYPES
+            .contains(&mime.as_str())
+            .then_some(mime)
     }
 
     /// Effective sender: prefer `sourceNumber` (E.164), fall back to `source`.
@@ -180,6 +225,144 @@ impl SignalChannel {
         }
     }
 
+    fn compose_inbound_content(text: Option<&str>, image_markers: &[String]) -> Option<String> {
+        let trimmed_text = text.map(str::trim).filter(|value| !value.is_empty());
+
+        if image_markers.is_empty() {
+            return trimmed_text.map(ToString::to_string);
+        }
+
+        let mut content = image_markers.join("\n");
+        if let Some(text) = trimmed_text {
+            content.push_str("\n\n");
+            content.push_str(text);
+        }
+        Some(content)
+    }
+
+    fn build_channel_message(
+        &self,
+        sender: String,
+        reply_target: String,
+        content: String,
+        timestamp: u64,
+    ) -> ChannelMessage {
+        ChannelMessage {
+            id: format!("sig_{timestamp}"),
+            sender,
+            reply_target,
+            content,
+            channel: "signal".to_string(),
+            timestamp: timestamp / 1000,
+            thread_ts: None,
+            interruption_scope_id: None,
+            attachments: vec![],
+        }
+    }
+
+    fn prepare_envelope<'a>(
+        &self,
+        envelope: &'a Envelope,
+    ) -> Option<(&'a DataMessage, String, String, u64)> {
+        if self.ignore_stories && envelope.story_message.is_some() {
+            return None;
+        }
+
+        let data_msg = envelope.data_message.as_ref()?;
+
+        if self.ignore_attachments {
+            let has_attachments = data_msg.attachments.as_ref().is_some_and(|a| !a.is_empty());
+            if has_attachments && data_msg.message.is_none() {
+                return None;
+            }
+        }
+
+        let sender = Self::sender(envelope)?;
+        if !self.is_sender_allowed(&sender) {
+            return None;
+        }
+        if !self.matches_group(data_msg) {
+            return None;
+        }
+
+        let timestamp = data_msg
+            .timestamp
+            .or(envelope.timestamp)
+            .unwrap_or_else(|| {
+                u64::try_from(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis(),
+                )
+                .unwrap_or(u64::MAX)
+            });
+
+        let target = self.reply_target(data_msg, &sender);
+
+        Some((data_msg, sender, target, timestamp))
+    }
+
+    async fn fetch_attachment_base64(
+        &self,
+        attachment_id: &str,
+        sender: &str,
+        group_id: Option<&str>,
+    ) -> Option<String> {
+        let mut params = serde_json::json!({
+            "account": &self.account,
+            "id": attachment_id,
+        });
+        if let Some(group_id) = group_id {
+            params["groupId"] = serde_json::json!(group_id);
+        } else {
+            params["recipient"] = serde_json::json!(sender);
+        }
+
+        match self.rpc_request("getAttachment", params).await {
+            Ok(Some(result)) => result
+                .get("data")
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(attachment_id, %error, "Signal attachment fetch failed");
+                None
+            }
+        }
+    }
+
+    async fn image_markers_for_message(&self, data_msg: &DataMessage, sender: &str) -> Vec<String> {
+        let Some(attachments) = data_msg.attachments.as_ref() else {
+            return Vec::new();
+        };
+
+        let group_id = data_msg
+            .group_info
+            .as_ref()
+            .and_then(|group| group.group_id.as_deref());
+        let mut markers = Vec::new();
+
+        for attachment in attachments {
+            let Some(mime) = Self::normalize_attachment_mime(attachment) else {
+                continue;
+            };
+            let Some(attachment_id) = attachment.id.as_deref().filter(|id| !id.is_empty()) else {
+                tracing::debug!(?attachment, "Signal image attachment missing id");
+                continue;
+            };
+            let Some(data) = self
+                .fetch_attachment_base64(attachment_id, sender, group_id)
+                .await
+            else {
+                continue;
+            };
+            markers.push(format!("[IMAGE:data:{mime};base64,{data}]"));
+        }
+
+        markers
+    }
+
     /// Send a JSON-RPC request to signal-cli daemon.
     async fn rpc_request(
         &self,
@@ -230,58 +413,20 @@ impl SignalChannel {
 
     /// Process a single SSE envelope, returning a ChannelMessage if valid.
     fn process_envelope(&self, envelope: &Envelope) -> Option<ChannelMessage> {
-        // Skip story messages when configured
-        if self.ignore_stories && envelope.story_message.is_some() {
-            return None;
-        }
+        let (data_msg, sender, target, timestamp) = self.prepare_envelope(envelope)?;
+        let content = Self::compose_inbound_content(data_msg.message.as_deref(), &[])?;
+        Some(self.build_channel_message(sender, target, content, timestamp))
+    }
 
-        let data_msg = envelope.data_message.as_ref()?;
-
-        // Skip attachment-only messages when configured
-        if self.ignore_attachments {
-            let has_attachments = data_msg.attachments.as_ref().is_some_and(|a| !a.is_empty());
-            if has_attachments && data_msg.message.is_none() {
-                return None;
-            }
-        }
-
-        let text = data_msg.message.as_deref().filter(|t| !t.is_empty())?;
-        let sender = Self::sender(envelope)?;
-
-        if !self.is_sender_allowed(&sender) {
-            return None;
-        }
-
-        if !self.matches_group(data_msg) {
-            return None;
-        }
-
-        let target = self.reply_target(data_msg, &sender);
-
-        let timestamp = data_msg
-            .timestamp
-            .or(envelope.timestamp)
-            .unwrap_or_else(|| {
-                u64::try_from(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis(),
-                )
-                .unwrap_or(u64::MAX)
-            });
-
-        Some(ChannelMessage {
-            id: format!("sig_{timestamp}"),
-            sender: sender.clone(),
-            reply_target: target,
-            content: text.to_string(),
-            channel: "signal".to_string(),
-            timestamp: timestamp / 1000, // millis → secs
-            thread_ts: None,
-            interruption_scope_id: None,
-            attachments: vec![],
-        })
+    async fn process_envelope_live(&self, envelope: &Envelope) -> Option<ChannelMessage> {
+        let (data_msg, sender, target, timestamp) = self.prepare_envelope(envelope)?;
+        let image_markers = if self.ignore_attachments {
+            Vec::new()
+        } else {
+            self.image_markers_for_message(data_msg, &sender).await
+        };
+        let content = Self::compose_inbound_content(data_msg.message.as_deref(), &image_markers)?;
+        Some(self.build_channel_message(sender, target, content, timestamp))
     }
 }
 
@@ -384,7 +529,9 @@ impl Channel for SignalChannel {
                             match serde_json::from_str::<SseEnvelope>(&current_data) {
                                 Ok(sse) => {
                                     if let Some(ref envelope) = sse.envelope {
-                                        if let Some(msg) = self.process_envelope(envelope) {
+                                        if let Some(msg) =
+                                            self.process_envelope_live(envelope).await
+                                        {
                                             if tx.send(msg).await.is_err() {
                                                 return Ok(());
                                             }
@@ -411,7 +558,7 @@ impl Channel for SignalChannel {
                 match serde_json::from_str::<SseEnvelope>(&current_data) {
                     Ok(sse) => {
                         if let Some(ref envelope) = sse.envelope {
-                            if let Some(msg) = self.process_envelope(envelope) {
+                            if let Some(msg) = self.process_envelope_live(envelope).await {
                                 let _ = tx.send(msg).await;
                             }
                         }
@@ -466,6 +613,8 @@ impl Channel for SignalChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     fn make_channel() -> SignalChannel {
         SignalChannel::new(
@@ -862,7 +1011,11 @@ mod tests {
                 message: None,
                 timestamp: Some(1_700_000_000_000),
                 group_info: None,
-                attachments: Some(vec![serde_json::json!({"contentType": "image/png"})]),
+                attachments: Some(vec![SignalAttachment {
+                    content_type: Some("image/png".to_string()),
+                    filename: None,
+                    id: Some("attachment-1".to_string()),
+                }]),
             }),
             story_message: None,
             timestamp: Some(1_700_000_000_000),
@@ -888,6 +1041,82 @@ mod tests {
         assert_eq!(env.source_number.as_deref(), Some("+1111111111"));
         let dm = env.data_message.unwrap();
         assert_eq!(dm.message.as_deref(), Some("Hello Signal!"));
+    }
+
+    #[test]
+    fn normalize_attachment_mime_uses_filename_fallback() {
+        let attachment = SignalAttachment {
+            content_type: None,
+            filename: Some("photo.jpeg".to_string()),
+            id: Some("attachment-1".to_string()),
+        };
+        assert_eq!(
+            SignalChannel::normalize_attachment_mime(&attachment).as_deref(),
+            Some("image/jpeg")
+        );
+    }
+
+    #[test]
+    fn compose_inbound_content_supports_attachment_only_images() {
+        let content = SignalChannel::compose_inbound_content(
+            None,
+            &["[IMAGE:data:image/png;base64,ZmFrZQ==]".to_string()],
+        )
+        .unwrap();
+        assert_eq!(content, "[IMAGE:data:image/png;base64,ZmFrZQ==]");
+    }
+
+    #[tokio::test]
+    async fn process_envelope_live_inlines_attachment_only_image() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 4096];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            assert!(request.contains("\"method\":\"getAttachment\""));
+            assert!(request.contains("\"id\":\"attachment-1\""));
+            assert!(request.contains("\"recipient\":\"+1111111111\""));
+
+            let body = r#"{"jsonrpc":"2.0","result":{"data":"ZmFrZQ=="},"id":"req-1"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let ch = SignalChannel::new(
+            format!("http://{addr}"),
+            "+1234567890".to_string(),
+            None,
+            vec!["*".to_string()],
+            false,
+            false,
+        );
+        let env = Envelope {
+            source: Some("+1111111111".to_string()),
+            source_number: Some("+1111111111".to_string()),
+            data_message: Some(DataMessage {
+                message: None,
+                timestamp: Some(1_700_000_000_000),
+                group_info: None,
+                attachments: Some(vec![SignalAttachment {
+                    content_type: Some("image/png".to_string()),
+                    filename: Some("photo.png".to_string()),
+                    id: Some("attachment-1".to_string()),
+                }]),
+            }),
+            story_message: None,
+            timestamp: Some(1_700_000_000_000),
+        };
+
+        let msg = ch.process_envelope_live(&env).await.unwrap();
+        assert_eq!(msg.content, "[IMAGE:data:image/png;base64,ZmFrZQ==]");
+
+        server.join().unwrap();
     }
 
     #[test]
